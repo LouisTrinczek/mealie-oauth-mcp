@@ -22,6 +22,7 @@ vuln:
 	go tool govulncheck ./...
 
 fuzz:
+	go test -run='^$$' -fuzz='^FuzzOpen$$' -fuzztime=10s ./internal/tokencrypt/
 
 test-integration:
 	$(INTEGRATION_COMPOSE) run --rm --build it
