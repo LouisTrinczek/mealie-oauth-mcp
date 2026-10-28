@@ -1,0 +1,60 @@
+# Based on github/gitignore Go.gitignore, plus project-specific entries.
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+/bin/
+/dist/
+/mealie-oauth-mcp
+
+# Test binary, built with `go test -c`
+*.test
+
+# Code coverage profiles and other test artifacts
+*.out
+coverage.*
+!coverage.go
+*.coverprofile
+profile.cov
+
+# Dependency directories (vendoring is not used in this project)
+vendor/
+
+# Go workspace file (local multi-module setups only)
+go.work
+go.work.sum
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime data (SQLite database, DATA_DIR)
+/data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Claude Code: personal instructions and local settings
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Editors and IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local design docs and plans
+docs/superpowers/
