@@ -27,6 +27,10 @@ NR > 1 {
 	}
 }
 END {
+	if (length(total) == 0) {
+		print "no packages found in coverage profile" > "/dev/stderr"
+		exit 1
+	}
 	failed = 0
 	for (pkg in total) {
 		required = (pkg in minimum) ? minimum[pkg] : minimum["default"]

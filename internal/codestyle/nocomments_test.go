@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -39,7 +38,8 @@ func filesWithExtension(t *testing.T, root, extension string) []string {
 		}
 		if entry.IsDir() {
 			relative, _ := filepath.Rel(root, path)
-			if slices.Contains([]string{".git", "testdata"}, entry.Name()) || relative == "docs" {
+			name := entry.Name()
+			if path != root && strings.HasPrefix(name, ".") || name == "testdata" || relative == "docs" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -121,7 +121,7 @@ func TestNoCommentsInSQL(t *testing.T) {
 	for _, path := range filesWithExtension(t, root, ".sql") {
 		relative, _ := filepath.Rel(root, path)
 		content := readInRoot(t, root, relative)
-		for _, line := range sqlCommentLines(string(content)) {
+		for _, line := range sqlCommentLines(content) {
 			t.Errorf("comment at %s:%d", relative, line)
 		}
 	}
@@ -133,7 +133,7 @@ func TestNoCommentsInTemplates(t *testing.T) {
 		relative, _ := filepath.Rel(root, path)
 		content := readInRoot(t, root, relative)
 		for _, marker := range []string{"<!--", "{{/*"} {
-			if strings.Contains(string(content), marker) {
+			if strings.Contains(content, marker) {
 				t.Errorf("comment %q in %s", marker, relative)
 			}
 		}

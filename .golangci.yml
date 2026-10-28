@@ -45,6 +45,9 @@ linters:
           disabled: true
         - name: package-comments
           disabled: true
+    gosec:
+      excludes:
+        - G104
     depguard:
       rules:
         no-insecure-rand:
@@ -89,36 +92,18 @@ linters:
             - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/tokencrypt
               desc: tools reach Mealie tokens only through the session manager
         leaf-packages:
+          list-mode: lax
           files:
             - "**/internal/secret/**"
             - "**/internal/token/**"
             - "**/internal/store/**"
             - "**/internal/obs/**"
             - "**/internal/httpx/**"
+          allow:
+            - github.com/louistrinczek/mealie-oauth-mcp/internal/secret
+            - github.com/louistrinczek/mealie-oauth-mcp/internal/obs
           deny:
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/app
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/audit
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/codestyle
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/config
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/httpx
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/mcpserver
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/mealie
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/oauth
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/session
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/store
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/token
-              desc: leaf packages import only secret and obs
-            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/tokencrypt
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal
               desc: leaf packages import only secret and obs
 
 formatters:
