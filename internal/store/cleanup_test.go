@@ -18,35 +18,35 @@ func seedExpiryBoundaries(t *testing.T, s *Store, now time.Time) {
 	insertSession := func(id, clientID string, expiresAt time.Time, revokedAt any) {
 		exec(`INSERT INTO sessions (id, client_id, mealie_user_id, mealie_username, mealie_token_ct,
 			mealie_token_expires_at, mealie_token_lifetime_s, resource, created_at, expires_at, last_used_at, revoked_at)
-			VALUES (?, ?, 'u', 'n', x'00', 0, 0, 'r', 0, ?, 0, ?)`, id, clientID, millis(expiresAt), revokedAt)
+			VALUES (?, ?, 'u', 'n', x'00', 0, 0, 'r', 0, ?, 0, ?)`, id, clientID, unixSeconds(expiresAt), revokedAt)
 	}
 
 	exec(`INSERT INTO pending_auths (id, client_id, redirect_uri, client_state, code_challenge, resource,
 		browser_binding_hash, upstream_state_hash, upstream_verifier, upstream_nonce, created_at, expires_at)
 		VALUES ('pa-expired', 'c', 'r', 's', 'c', 'r', x'00', x'01', 'v', 'n', 0, ?),
-			('pa-live', 'c', 'r', 's', 'c', 'r', x'00', x'02', 'v', 'n', 0, ?)`, millis(now), millis(after))
+			('pa-live', 'c', 'r', 's', 'c', 'r', x'00', x'02', 'v', 'n', 0, ?)`, unixSeconds(now), unixSeconds(after))
 
 	insertSession("s-live", "c", after, nil)
 	insertSession("s-expired", "c", now, nil)
-	insertSession("s-revoked-old", "c", after, millis(now.Add(-revokedSessionRetention-time.Second)))
-	insertSession("s-revoked-boundary", "c", after, millis(now.Add(-revokedSessionRetention)))
-	insertSession("s-revoked-recent", "c", after, millis(now.Add(-time.Second)))
+	insertSession("s-revoked-old", "c", after, unixSeconds(now.Add(-revokedSessionRetention-time.Second)))
+	insertSession("s-revoked-boundary", "c", after, unixSeconds(now.Add(-revokedSessionRetention)))
+	insertSession("s-revoked-recent", "c", after, unixSeconds(now.Add(-time.Second)))
 
 	exec(`INSERT INTO auth_codes (hash, session_id, client_id, redirect_uri, code_challenge, resource, expires_at)
-		VALUES (x'01', 's-live', 'c', 'r', 'c', 'r', ?), (x'02', 's-live', 'c', 'r', 'c', 'r', ?)`, millis(now), millis(after))
+		VALUES (x'01', 's-live', 'c', 'r', 'c', 'r', ?), (x'02', 's-live', 'c', 'r', 'c', 'r', ?)`, unixSeconds(now), unixSeconds(after))
 	exec(`INSERT INTO access_tokens (hash, session_id, expires_at)
-		VALUES (x'01', 's-live', ?), (x'02', 's-live', ?)`, millis(now), millis(after))
+		VALUES (x'01', 's-live', ?), (x'02', 's-live', ?)`, unixSeconds(now), unixSeconds(after))
 	exec(`INSERT INTO refresh_tokens (hash, session_id, expires_at)
-		VALUES (x'01', 's-live', ?), (x'02', 's-live', ?)`, millis(now), millis(after))
+		VALUES (x'01', 's-live', ?), (x'02', 's-live', ?)`, unixSeconds(now), unixSeconds(after))
 
-	staleFetch := millis(now.Add(-clientMetadataTTL - time.Second))
+	staleFetch := unixSeconds(now.Add(-clientMetadataTTL - time.Second))
 	exec(`INSERT INTO clients (id, source, name, redirect_uris, created_at, metadata_fetched_at) VALUES
 		('cimd-stale', 'cimd', 'n', '[]', 0, ?),
 		('cimd-boundary', 'cimd', 'n', '[]', 0, ?),
 		('cimd-fresh', 'cimd', 'n', '[]', 0, ?),
 		('cimd-stale-with-session', 'cimd', 'n', '[]', 0, ?),
 		('dcr-old', 'dcr', 'n', '[]', 0, NULL)`,
-		staleFetch, millis(now.Add(-clientMetadataTTL)), millis(now.Add(-time.Second)), staleFetch)
+		staleFetch, unixSeconds(now.Add(-clientMetadataTTL)), unixSeconds(now.Add(-time.Second)), staleFetch)
 	insertSession("s-for-cimd", "cimd-stale-with-session", after, nil)
 }
 

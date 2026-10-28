@@ -81,26 +81,26 @@ type RefreshToken struct {
 	UsedAt    time.Time
 }
 
-func millis(t time.Time) int64 {
-	return t.UnixMilli()
+func unixSeconds(t time.Time) int64 {
+	return t.Unix()
 }
 
-func nullableMillis(t time.Time) sql.NullInt64 {
+func nullableSeconds(t time.Time) sql.NullInt64 {
 	if t.IsZero() {
 		return sql.NullInt64{}
 	}
-	return sql.NullInt64{Int64: t.UnixMilli(), Valid: true}
+	return sql.NullInt64{Int64: t.Unix(), Valid: true}
 }
 
-func timeFromMillis(ms int64) time.Time {
-	return time.UnixMilli(ms).UTC()
+func timeFromSeconds(s int64) time.Time {
+	return time.Unix(s, 0).UTC()
 }
 
 func timeFromNullable(n sql.NullInt64) time.Time {
 	if !n.Valid {
 		return time.Time{}
 	}
-	return timeFromMillis(n.Int64)
+	return timeFromSeconds(n.Int64)
 }
 
 func seconds(d time.Duration) int64 {

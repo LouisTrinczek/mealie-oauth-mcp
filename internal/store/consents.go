@@ -21,7 +21,7 @@ func (s *Store) GrantConsent(ctx context.Context, userID, clientID string, now t
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO consents (mealie_user_id, client_id, granted_at) VALUES (?, ?, ?)
 		ON CONFLICT (mealie_user_id, client_id) DO NOTHING`,
-		userID, clientID, millis(now))
+		userID, clientID, unixSeconds(now))
 	if err != nil {
 		return fmt.Errorf("granting consent: %w", err)
 	}

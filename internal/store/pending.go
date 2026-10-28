@@ -30,8 +30,8 @@ func scanPendingAuth(row rowScanner) (PendingAuth, error) {
 	p.MealieUsername = username.String
 	p.MealieTokenExpiresAt = timeFromNullable(tokenExpiresAt)
 	p.MealieTokenLifetime = durationFromNullable(tokenLifetimeS)
-	p.CreatedAt = timeFromMillis(createdAt)
-	p.ExpiresAt = timeFromMillis(expiresAt)
+	p.CreatedAt = timeFromSeconds(createdAt)
+	p.ExpiresAt = timeFromSeconds(expiresAt)
 	return p, nil
 }
 
@@ -42,7 +42,7 @@ func (s *Store) CreatePendingAuth(ctx context.Context, p PendingAuth) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.ClientID, p.RedirectURI, p.ClientState, p.CodeChallenge, p.Resource,
 		p.BrowserBindingHash, p.UpstreamStateHash, p.UpstreamVerifier, p.UpstreamNonce,
-		millis(p.CreatedAt), millis(p.ExpiresAt))
+		unixSeconds(p.CreatedAt), unixSeconds(p.ExpiresAt))
 	if err != nil {
 		return fmt.Errorf("creating pending auth: %w", err)
 	}
@@ -60,9 +60,9 @@ func (s *Store) GetPendingAuth(ctx context.Context, id string) (PendingAuth, err
 
 func (s *Store) TakePendingAuthByUpstreamState(ctx context.Context, stateHash []byte, now time.Time) (PendingAuth, error) {
 	p, err := scanPendingAuth(s.db.QueryRowContext(ctx,
-		`UPDATE pending_auths SET upstream_state_hash = randomblob(32)
+		`UPDATE pending_auths SET upstream_state_hash = NULL
 		WHERE upstream_state_hash = ? AND expires_at > ?
-		RETURNING `+pendingAuthColumns, stateHash, millis(now)))
+		RETURNING `+pendingAuthColumns, stateHash, unixSeconds(now)))
 	if err != nil {
 		return PendingAuth{}, lookupError("taking pending auth", err)
 	}
@@ -77,7 +77,7 @@ func (s *Store) SetPendingAuthLogin(ctx context.Context, id string, l Login) err
 			mealie_token_expires_at = ?, mealie_token_lifetime_s = ?
 		WHERE id = ?`,
 		l.MealieUserID, l.MealieUsername, l.MealieTokenCT,
-		millis(l.MealieTokenExpiresAt), seconds(l.MealieTokenLifetime), id)
+		unixSeconds(l.MealieTokenExpiresAt), seconds(l.MealieTokenLifetime), id)
 }
 
 func (s *Store) DeletePendingAuth(ctx context.Context, id string) error {

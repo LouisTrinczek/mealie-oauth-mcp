@@ -20,7 +20,7 @@ func scanAuthCode(row rowScanner) (AuthCode, error) {
 	if err != nil {
 		return AuthCode{}, err
 	}
-	c.ExpiresAt = timeFromMillis(expiresAt)
+	c.ExpiresAt = timeFromSeconds(expiresAt)
 	c.UsedAt = timeFromNullable(usedAt)
 	return c, nil
 }
@@ -28,7 +28,7 @@ func scanAuthCode(row rowScanner) (AuthCode, error) {
 func (s *Store) ConsumeAuthCode(ctx context.Context, hash []byte, now time.Time) (AuthCode, error) {
 	code, err := scanAuthCode(s.db.QueryRowContext(ctx,
 		`UPDATE auth_codes SET used_at = ? WHERE hash = ? AND used_at IS NULL AND expires_at > ?
-		RETURNING `+authCodeColumns, millis(now), hash, millis(now)))
+		RETURNING `+authCodeColumns, unixSeconds(now), hash, unixSeconds(now)))
 	if err == nil {
 		return code, nil
 	}
@@ -46,12 +46,12 @@ func (s *Store) ConsumeAuthCode(ctx context.Context, hash []byte, now time.Time)
 func insertTokens(ctx context.Context, tx *sql.Tx, access AccessToken, refresh RefreshToken) error {
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO access_tokens (hash, session_id, expires_at) VALUES (?, ?, ?)`,
-		access.Hash, access.SessionID, millis(access.ExpiresAt)); err != nil {
+		access.Hash, access.SessionID, unixSeconds(access.ExpiresAt)); err != nil {
 		return fmt.Errorf("inserting access token: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (hash, session_id, expires_at) VALUES (?, ?, ?)`,
-		refresh.Hash, refresh.SessionID, millis(refresh.ExpiresAt)); err != nil {
+		refresh.Hash, refresh.SessionID, unixSeconds(refresh.ExpiresAt)); err != nil {
 		return fmt.Errorf("inserting refresh token: %w", err)
 	}
 	return nil
@@ -74,7 +74,7 @@ func (s *Store) GetAccessToken(ctx context.Context, hash []byte) (AccessToken, e
 	if err != nil {
 		return AccessToken{}, lookupError("getting access token", err)
 	}
-	token.ExpiresAt = timeFromMillis(expiresAt)
+	token.ExpiresAt = timeFromSeconds(expiresAt)
 	return token, nil
 }
 
@@ -90,7 +90,7 @@ func (s *Store) GetRefreshToken(ctx context.Context, hash []byte) (RefreshToken,
 	if err != nil {
 		return RefreshToken{}, lookupError("getting refresh token", err)
 	}
-	token.ExpiresAt = timeFromMillis(expiresAt)
+	token.ExpiresAt = timeFromSeconds(expiresAt)
 	token.UsedAt = timeFromNullable(usedAt)
 	return token, nil
 }
@@ -100,7 +100,7 @@ func (s *Store) RotateRefreshToken(ctx context.Context, oldHash []byte, now time
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx,
 			`UPDATE refresh_tokens SET used_at = ? WHERE hash = ? AND used_at IS NULL AND expires_at > ?
-			RETURNING session_id`, millis(now), oldHash, millis(now)).Scan(&sessionID)
+			RETURNING session_id`, unixSeconds(now), oldHash, unixSeconds(now)).Scan(&sessionID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return reportUnrotatable(ctx, tx, oldHash, &sessionID)
 		}

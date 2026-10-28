@@ -20,7 +20,7 @@ func (s *Store) UpsertClient(ctx context.Context, c Client) error {
 			name = excluded.name,
 			redirect_uris = excluded.redirect_uris,
 			metadata_fetched_at = excluded.metadata_fetched_at`,
-		c.ID, c.Source, c.Name, string(redirectURIs), millis(c.CreatedAt), nullableMillis(c.MetadataFetchedAt))
+		c.ID, c.Source, c.Name, string(redirectURIs), unixSeconds(c.CreatedAt), nullableSeconds(c.MetadataFetchedAt))
 	if err != nil {
 		return fmt.Errorf("upserting client: %w", err)
 	}
@@ -44,7 +44,7 @@ func (s *Store) GetClient(ctx context.Context, id string) (Client, error) {
 	if err := json.Unmarshal([]byte(redirectURIs), &c.RedirectURIs); err != nil {
 		return Client{}, fmt.Errorf("decoding redirect URIs: %w", err)
 	}
-	c.CreatedAt = timeFromMillis(createdAt)
+	c.CreatedAt = timeFromSeconds(createdAt)
 	c.MetadataFetchedAt = timeFromNullable(fetchedAt)
 	return c, nil
 }

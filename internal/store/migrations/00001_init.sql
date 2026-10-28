@@ -16,7 +16,7 @@ CREATE TABLE pending_auths (
     code_challenge TEXT NOT NULL,
     resource TEXT NOT NULL,
     browser_binding_hash BLOB NOT NULL,
-    upstream_state_hash BLOB NOT NULL UNIQUE,
+    upstream_state_hash BLOB UNIQUE,
     upstream_verifier TEXT NOT NULL,
     upstream_nonce TEXT NOT NULL,
     mealie_user_id TEXT,

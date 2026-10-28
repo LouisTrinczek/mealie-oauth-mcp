@@ -12,22 +12,22 @@ const revokedSessionRetention = 24 * time.Hour
 const clientMetadataTTL = 24 * time.Hour
 
 func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int64, error) {
-	nowMillis := millis(now)
+	nowSeconds := unixSeconds(now)
 	statements := []struct {
 		what  string
 		query string
 		args  []any
 	}{
-		{"pending auths", `DELETE FROM pending_auths WHERE expires_at <= ?`, []any{nowMillis}},
-		{"auth codes", `DELETE FROM auth_codes WHERE expires_at <= ?`, []any{nowMillis}},
-		{"access tokens", `DELETE FROM access_tokens WHERE expires_at <= ?`, []any{nowMillis}},
-		{"refresh tokens", `DELETE FROM refresh_tokens WHERE expires_at <= ?`, []any{nowMillis}},
+		{"pending auths", `DELETE FROM pending_auths WHERE expires_at <= ?`, []any{nowSeconds}},
+		{"auth codes", `DELETE FROM auth_codes WHERE expires_at <= ?`, []any{nowSeconds}},
+		{"access tokens", `DELETE FROM access_tokens WHERE expires_at <= ?`, []any{nowSeconds}},
+		{"refresh tokens", `DELETE FROM refresh_tokens WHERE expires_at <= ?`, []any{nowSeconds}},
 		{"sessions", `DELETE FROM sessions WHERE expires_at <= ? OR revoked_at < ?`,
-			[]any{nowMillis, millis(now.Add(-revokedSessionRetention))}},
+			[]any{nowSeconds, unixSeconds(now.Add(-revokedSessionRetention))}},
 		{"clients", `DELETE FROM clients
 			WHERE source = 'cimd' AND metadata_fetched_at < ?
 			AND NOT EXISTS (SELECT 1 FROM sessions WHERE sessions.client_id = clients.id)`,
-			[]any{millis(now.Add(-clientMetadataTTL))}},
+			[]any{unixSeconds(now.Add(-clientMetadataTTL))}},
 	}
 	var deleted int64
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
