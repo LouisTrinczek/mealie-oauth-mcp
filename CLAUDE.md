@@ -21,7 +21,7 @@ disagree, say so instead of silently picking one.
   before introducing a new pattern.
 - Touch only what you must. Clean up only what you changed; leave unrelated
   code alone.
-- Never commit or push without explicit user approval.
+- Never push without explicit user approval.
 - Keep responsibilities separated: one package, file, and function per
   concern.
 
