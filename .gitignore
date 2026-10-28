@@ -21,6 +21,7 @@ coverage.*
 !coverage.go
 *.coverprofile
 profile.cov
+golangci-report.xml
 
 # Dependency directories (vendoring is not used in this project)
 vendor/

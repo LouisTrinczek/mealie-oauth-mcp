@@ -33,6 +33,9 @@ disagree, say so instead of silently picking one.
 - Vet: `go vet ./...`
 - Format: `gofmt -l -w .`
 - Tidy modules: `go mod tidy`
+- Lint: `make lint` (golangci-lint, pinned as a Go tool)
+- Vulnerabilities: `make vuln` (govulncheck)
+- Coverage gate: `make cover` (per-package minimums in `.coverage-thresholds`)
 
 Before calling a change done, run `gofmt -l .` (no output expected),
 `go vet ./...`, and `go test -race ./...`, and report the result.

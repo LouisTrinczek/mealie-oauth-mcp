@@ -1,5 +1,7 @@
 # mealie-oauth-mcp
 
+[![Quality Gate Status](https://SONAR_HOST/api/project_badges/measure?project=mealie-oauth-mcp&metric=alert_status)](https://SONAR_HOST/dashboard?id=mealie-oauth-mcp)
+
 A remote [MCP](https://modelcontextprotocol.io) server for
 [Mealie](https://mealie.io) that lets AI agents (Claude.ai, Claude Code, and
 other MCP clients) work with your recipes, meal plans, and shopping lists.
@@ -60,9 +62,13 @@ Mealie's `TOKEN_TIME` (48 h by default).
 Requires Go 1.27 or later.
 
 ```sh
-go build ./...          # build
-go test -race ./...     # run tests
-go vet ./...            # static checks
+make build              # build
+make test               # tests with race detector, writes coverage.out
+make cover              # tests plus per-package coverage minimums
+make lint               # golangci-lint, writes golangci-report.xml
+make vuln               # govulncheck
+make fuzz               # run every fuzz target for FUZZTIME (default 30s)
+make test-integration   # Docker-based end-to-end test
 gofmt -l .              # list unformatted files
 go run ./cmd/mealie-oauth-mcp
 ```
@@ -71,7 +77,7 @@ Enable the pre-commit hook once per clone. It rejects commits that contain
 unformatted Go files:
 
 ```sh
-git config core.hooksPath .githooks
+make setup
 ```
 
 ### Project layout
@@ -86,4 +92,4 @@ split is OAuth server, Mealie API client, MCP tools, storage, and config.
 
 ## License
 
-MIT (license file to be added).
+MIT, see [LICENSE](LICENSE).
