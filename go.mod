@@ -9,6 +9,7 @@ tool (
 
 require (
 	github.com/pressly/goose/v3 v3.29.0
+	golang.org/x/time v0.16.0
 	modernc.org/sqlite v1.61.0
 )
 
