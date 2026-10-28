@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const MinVersion = "v3.23.0"
+const MinVersion = "v3.25.0"
 
 func CompareVersions(a, b string) (int, error) {
 	left, err := parseVersion(a)
