@@ -11,7 +11,10 @@ disagree, say so instead of silently picking one.
 
 - No code comments. Code must explain itself through names, types, and small
   functions. If something needs a comment, rename or restructure it instead.
-  Go directives (`//go:build`, `//go:embed`) are not comments and stay.
+  Directives are not comments and stay: `//go:build`, `//go:embed`, and
+  goose's `-- +goose Up`. No `//nolint`; fix the finding instead. Config
+  files (workflows, compose, Dockerfile) may carry a short note where one is
+  needed.
 - YAGNI, KISS, DRY: write only the minimum code that solves the problem at
   hand. No speculative options, hooks, or abstractions.
 - Follow existing project patterns. Reuse what the codebase already does
