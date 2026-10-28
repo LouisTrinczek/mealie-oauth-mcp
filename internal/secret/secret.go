@@ -1,6 +1,11 @@
 package secret
 
-import "log/slog"
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"log/slog"
+)
 
 const redacted = "[REDACTED]"
 
@@ -9,7 +14,7 @@ type Secret struct {
 }
 
 func New(b []byte) Secret {
-	return Secret{value: b}
+	return Secret{value: bytes.Clone(b)}
 }
 
 func FromString(s string) Secret {
@@ -26,6 +31,14 @@ func (s Secret) Reveal() string {
 
 func (Secret) String() string {
 	return redacted
+}
+
+func (s Secret) Format(f fmt.State, verb rune) {
+	if verb == 'v' && f.Flag('#') {
+		_, _ = io.WriteString(f, s.GoString())
+		return
+	}
+	_, _ = io.WriteString(f, redacted)
 }
 
 func (Secret) GoString() string {

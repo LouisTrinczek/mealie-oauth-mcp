@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const urlPassword = "s3cretvalue"
+
 func keyMaterial(size int) string {
 	raw := make([]byte, size)
 	for i := range raw {
@@ -165,6 +167,48 @@ func TestLoad_FileVariantUnreadable(t *testing.T) {
 	}
 }
 
+func TestLoad_EmptyKeyVariablesTreatedAsUnset(t *testing.T) {
+	files := map[string][]byte{"/run/secrets/k": []byte("k1:" + keyMaterial(32))}
+	tests := map[string]map[string]string{
+		"empty inline with file": {"ENCRYPTION_KEYS": "", "ENCRYPTION_KEYS_FILE": "/run/secrets/k"},
+		"empty file with inline": {"ENCRYPTION_KEYS_FILE": ""},
+	}
+	for name, overrides := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := loadFrom(withEnv(overrides), files)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if len(cfg.EncryptionKeys) != 1 || cfg.EncryptionKeys[0].ID != "k1" {
+				t.Errorf("EncryptionKeys = %+v", cfg.EncryptionKeys)
+			}
+		})
+	}
+}
+
+func TestLoad_AcceptedBoundaries(t *testing.T) {
+	tests := []struct {
+		name      string
+		overrides map[string]string
+		check     func(*Config) bool
+	}{
+		{"access ttl 5m", map[string]string{"ACCESS_TOKEN_TTL": "5m"}, func(c *Config) bool { return c.AccessTokenTTL == 5*time.Minute }},
+		{"access ttl 24h", map[string]string{"ACCESS_TOKEN_TTL": "24h"}, func(c *Config) bool { return c.AccessTokenTTL == 24*time.Hour }},
+		{"session 2160h", map[string]string{"SESSION_MAX_AGE": "2160h"}, func(c *Config) bool { return c.SessionMaxAge == 2160*time.Hour }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := loadFrom(withEnv(tt.overrides), nil)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if !tt.check(cfg) {
+				t.Errorf("unexpected config %+v", cfg)
+			}
+		})
+	}
+}
+
 func TestLoad_BothKeySourcesRejected(t *testing.T) {
 	env := validEnv()
 	env["ENCRYPTION_KEYS_FILE"] = "/run/secrets/k"
@@ -195,6 +239,11 @@ func TestLoad_Errors(t *testing.T) {
 		{name: "public url missing", remove: "PUBLIC_URL", wantVar: "PUBLIC_URL"},
 		{name: "mealie url malformed", overrides: map[string]string{"MEALIE_URL": "not a url"}, wantVar: "MEALIE_URL"},
 		{name: "mealie url wrong scheme", overrides: map[string]string{"MEALIE_URL": "ftp://mealie.example"}, wantVar: "MEALIE_URL"},
+		{name: "public url with credentials", overrides: map[string]string{"PUBLIC_URL": "https://user:" + urlPassword + "@mcp.example"}, wantVar: "PUBLIC_URL", forbiddenIn: []string{urlPassword}},
+		{name: "mealie url with credentials", overrides: map[string]string{"MEALIE_URL": "https://user:" + urlPassword + "@mealie.example"}, wantVar: "MEALIE_URL", forbiddenIn: []string{urlPassword}},
+		{name: "mealie url with query", overrides: map[string]string{"MEALIE_URL": "https://mealie.example?a=b"}, wantVar: "MEALIE_URL"},
+		{name: "mealie url with fragment", overrides: map[string]string{"MEALIE_URL": "https://mealie.example#frag"}, wantVar: "MEALIE_URL"},
+		{name: "insecure flag false with http public url", overrides: map[string]string{"PUBLIC_URL": "http://mcp.example", "INSECURE_ALLOW_HTTP": "false"}, wantVar: "PUBLIC_URL"},
 		{name: "public url with path", overrides: map[string]string{"PUBLIC_URL": "https://mcp.example/base"}, wantVar: "PUBLIC_URL"},
 		{name: "public url with query", overrides: map[string]string{"PUBLIC_URL": "https://mcp.example?a=b"}, wantVar: "PUBLIC_URL"},
 		{name: "public url with fragment", overrides: map[string]string{"PUBLIC_URL": "https://mcp.example#frag"}, wantVar: "PUBLIC_URL"},

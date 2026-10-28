@@ -26,6 +26,7 @@ func TestSecret_NeverPrints(t *testing.T) {
 	outputs := map[string]string{
 		"Sprint":  fmt.Sprint(s),
 		"Sprintf": fmt.Sprintf("%v %+v %#v %s", s, s, s, s),
+		"verbs":   fmt.Sprintf("%d %x %X %q %t", s, s, s, s, s),
 		"json":    string(jsonBytes),
 		"text":    string(textBytes),
 		"slog":    logLine.String(),
@@ -39,6 +40,21 @@ func TestSecret_NeverPrints(t *testing.T) {
 				t.Errorf("output lacks the redaction marker: %q", out)
 			}
 		})
+	}
+}
+
+func TestSecret_NewClonesInput(t *testing.T) {
+	input := []byte("abc")
+	s := New(input)
+	input[0] = 'x'
+	if got := s.Reveal(); got != "abc" {
+		t.Errorf("Reveal() = %q after mutating input", got)
+	}
+}
+
+func TestSecret_GoStringViaFormat(t *testing.T) {
+	if got := fmt.Sprintf("%#v", FromString("hunter2")); got != "secret.Secret{[REDACTED]}" {
+		t.Errorf("%%#v = %q", got)
 	}
 }
 

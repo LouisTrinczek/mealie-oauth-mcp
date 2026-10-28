@@ -93,9 +93,9 @@ func Load(getenv func(string) (string, bool), readFile func(string) ([]byte, err
 	collect(err)
 	cfg.EncryptionKeys, err = env.encryptionKeys()
 	collect(err)
-	cfg.SessionMaxAge, err = env.duration("SESSION_MAX_AGE", defaultSessionMaxAge, time.Nanosecond, maxSessionMaxAge)
+	cfg.SessionMaxAge, err = env.duration("SESSION_MAX_AGE", defaultSessionMaxAge, time.Nanosecond, maxSessionMaxAge, "positive and at most 2160h")
 	collect(err)
-	cfg.AccessTokenTTL, err = env.duration("ACCESS_TOKEN_TTL", defaultAccessTokenTTL, minAccessTokenTTL, maxAccessTokenTTL)
+	cfg.AccessTokenTTL, err = env.duration("ACCESS_TOKEN_TTL", defaultAccessTokenTTL, minAccessTokenTTL, maxAccessTokenTTL, "between 5m and 24h")
 	collect(err)
 	cfg.LogLevel, err = env.logLevel()
 	collect(err)
@@ -131,6 +131,9 @@ func (e environment) baseURL(name string) (*url.URL, error) {
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, fmt.Errorf("%s must be an absolute http or https URL", name)
 	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return nil, fmt.Errorf("%s must not contain credentials, a query or a fragment", name)
+	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	parsed.RawPath = ""
 	return parsed, nil
@@ -142,8 +145,8 @@ func (e environment) publicURL(insecureAllowHTTP bool) (*url.URL, error) {
 	if err != nil {
 		return nil, err
 	}
-	if parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
-		return nil, fmt.Errorf("%s must not contain a path, query or fragment", name)
+	if parsed.Path != "" {
+		return nil, fmt.Errorf("%s must not contain a path", name)
 	}
 	if parsed.Scheme == "http" && !insecureAllowHTTP {
 		return nil, fmt.Errorf("%s must use https unless INSECURE_ALLOW_HTTP is set", name)
@@ -151,7 +154,7 @@ func (e environment) publicURL(insecureAllowHTTP bool) (*url.URL, error) {
 	return parsed, nil
 }
 
-func (e environment) duration(name string, fallback, minimum, maximum time.Duration) (time.Duration, error) {
+func (e environment) duration(name string, fallback, minimum, maximum time.Duration, bounds string) (time.Duration, error) {
 	raw := e.lookup(name, "")
 	if raw == "" {
 		return fallback, nil
@@ -161,7 +164,7 @@ func (e environment) duration(name string, fallback, minimum, maximum time.Durat
 		return 0, fmt.Errorf("%s must be a duration such as 1h", name)
 	}
 	if value < minimum || value > maximum {
-		return 0, fmt.Errorf("%s must be between %s and %s", name, minimum, maximum)
+		return 0, fmt.Errorf("%s must be %s", name, bounds)
 	}
 	return value, nil
 }
@@ -200,12 +203,12 @@ func (e environment) trustedProxies() ([]netip.Prefix, error) {
 
 func (e environment) encryptionKeysValue() (string, error) {
 	const name, fileName = "ENCRYPTION_KEYS", "ENCRYPTION_KEYS_FILE"
-	inline, hasInline := e.getenv(name)
-	path, hasFile := e.getenv(fileName)
+	inline := e.lookup(name, "")
+	path := e.lookup(fileName, "")
 	switch {
-	case hasInline && hasFile:
+	case inline != "" && path != "":
 		return "", fmt.Errorf("%s and %s are mutually exclusive", name, fileName)
-	case hasFile:
+	case path != "":
 		content, err := e.readFile(path)
 		if err != nil {
 			return "", fmt.Errorf("%s could not be read", fileName)
