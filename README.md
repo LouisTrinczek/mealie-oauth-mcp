@@ -67,6 +67,13 @@ gofmt -l .              # list unformatted files
 go run ./cmd/mealie-oauth-mcp
 ```
 
+Enable the pre-commit hook once per clone. It rejects commits that contain
+unformatted Go files:
+
+```sh
+git config core.hooksPath .githooks
+```
+
 ### Project layout
 
 ```

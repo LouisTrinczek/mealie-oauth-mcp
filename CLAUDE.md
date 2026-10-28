@@ -7,6 +7,21 @@ that Mealie user. The design spec is the source of truth for behavior:
 section before working on auth, tools, or storage. If the code and the spec
 disagree, say so instead of silently picking one.
 
+## Coding rules
+
+- No code comments. Code must explain itself through names, types, and small
+  functions. If something needs a comment, rename or restructure it instead.
+  Go directives (`//go:build`, `//go:embed`) are not comments and stay.
+- YAGNI, KISS, DRY: write only the minimum code that solves the problem at
+  hand. No speculative options, hooks, or abstractions.
+- Follow existing project patterns. Reuse what the codebase already does
+  before introducing a new pattern.
+- Touch only what you must. Clean up only what you changed; leave unrelated
+  code alone.
+- Never commit or push without explicit user approval.
+- Keep responsibilities separated: one package, file, and function per
+  concern.
+
 ## Commands
 
 - Build: `go build ./...`
@@ -18,6 +33,10 @@ disagree, say so instead of silently picking one.
 
 Before calling a change done, run `gofmt -l .` (no output expected),
 `go vet ./...`, and `go test -race ./...`, and report the result.
+
+Code must be formatted before every commit. The `.githooks/pre-commit` hook
+rejects commits with unformatted Go files; enable it once per clone with
+`git config core.hooksPath .githooks`. Never bypass it with `--no-verify`.
 
 ## Layout
 

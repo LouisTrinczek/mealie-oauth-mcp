@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go')
+[ -z "$staged" ] && exit 0
+
+unformatted=$(echo "$staged" | xargs gofmt -l)
+if [ -n "$unformatted" ]; then
+	echo "pre-commit: unformatted Go files, run 'gofmt -w .' and stage them again:" >&2
+	echo "$unformatted" >&2
+	exit 1
+fi
