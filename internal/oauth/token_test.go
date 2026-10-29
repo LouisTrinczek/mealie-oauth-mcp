@@ -357,11 +357,12 @@ const storeFailureDetail = "disk on fire"
 type failingStore struct {
 	Store
 	failing string
+	err     error
 }
 
 func (f *failingStore) fail(method string) error {
 	if f.failing == method {
-		return errors.New(storeFailureDetail)
+		return f.err
 	}
 	return nil
 }
@@ -416,7 +417,11 @@ func (f *failingStore) RevokeSession(ctx context.Context, id string, now time.Ti
 }
 
 func (e *testEnv) failStore(method string) {
-	e.recorder.Store = &failingStore{Store: e.store, failing: method}
+	e.failStoreWith(method, errors.New(storeFailureDetail))
+}
+
+func (e *testEnv) failStoreWith(method string, err error) {
+	e.recorder.Store = &failingStore{Store: e.store, failing: method, err: err}
 }
 
 func wantServerError(t *testing.T, resp reply, body string) {
@@ -463,6 +468,32 @@ func TestToken_StoreFailure(t *testing.T) {
 			resp, body := env.postToken(t, form)
 
 			wantServerError(t, resp, body)
+		})
+	}
+}
+
+func TestToken_GrantVanishesMidRequest(t *testing.T) {
+	freshCode := func(t *testing.T, env *testEnv) url.Values { return codeGrant(env.loginToCode(t)) }
+	freshRefresh := func(t *testing.T, env *testEnv) url.Values {
+		return refreshGrant(env.wantTokens(t, codeGrant(env.loginToCode(t))).RefreshToken)
+	}
+	tests := []struct {
+		name    string
+		failing string
+		form    func(*testing.T, *testEnv) url.Values
+	}{
+		{"refresh token gone before rotation", "RotateRefreshToken", freshRefresh},
+		{"session gone during refresh", "GetSession", freshRefresh},
+		{"session gone during code exchange", "GetSession", freshCode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestServer(t)
+			form := tt.form(t, env)
+			env.failStoreWith(tt.failing, store.ErrNotFound)
+
+			env.wantTokenError(t, form, http.StatusBadRequest, "invalid_grant")
+			env.wantNotRevoked(t)
 		})
 	}
 }

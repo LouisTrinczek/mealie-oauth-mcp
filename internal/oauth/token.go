@@ -147,6 +147,10 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		s.rejectReuse(w, r, sessionID, session.ClientID, reuseKindRefresh, descRefreshInvalid)
 		return
 	}
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSONError(w, http.StatusBadRequest, "invalid_grant", descRefreshInvalid)
+		return
+	}
 	if err != nil {
 		s.tokenServerError(w, r, "rotating refresh token", err)
 		return
@@ -157,6 +161,10 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) liveSession(w http.ResponseWriter, r *http.Request, id string) (store.Session, bool) {
 	session, err := s.store.GetSession(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSONError(w, http.StatusBadRequest, "invalid_grant", descSessionEnded)
+		return store.Session{}, false
+	}
 	if err != nil {
 		s.tokenServerError(w, r, "getting session", err)
 		return store.Session{}, false
