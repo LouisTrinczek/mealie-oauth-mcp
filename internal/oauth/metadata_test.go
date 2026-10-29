@@ -38,17 +38,18 @@ func TestMetadata_AuthorizationServer(t *testing.T) {
 		t.Fatalf("Content-Type = %q", ct)
 	}
 	wantFields(t, decodeJSON(t, body), map[string]any{
-		"issuer":                                issuer,
-		"authorization_endpoint":                issuer + "/authorize",
-		"token_endpoint":                        issuer + "/token",
-		"registration_endpoint":                 issuer + "/register",
-		"revocation_endpoint":                   issuer + "/revoke",
-		"response_types_supported":              []any{"code"},
-		"grant_types_supported":                 []any{"authorization_code", "refresh_token"},
-		"code_challenge_methods_supported":      []any{"S256"},
-		"token_endpoint_auth_methods_supported": []any{"none"},
-		"client_id_metadata_document_supported": true,
-		"scopes_supported":                      []any{"mealie"},
+		"issuer":                                         issuer,
+		"authorization_endpoint":                         issuer + "/authorize",
+		"token_endpoint":                                 issuer + "/token",
+		"registration_endpoint":                          issuer + "/register",
+		"revocation_endpoint":                            issuer + "/revoke",
+		"response_types_supported":                       []any{"code"},
+		"grant_types_supported":                          []any{"authorization_code", "refresh_token"},
+		"code_challenge_methods_supported":               []any{"S256"},
+		"token_endpoint_auth_methods_supported":          []any{"none"},
+		"client_id_metadata_document_supported":          true,
+		"scopes_supported":                               []any{"mealie"},
+		"authorization_response_iss_parameter_supported": true,
 	})
 }
 

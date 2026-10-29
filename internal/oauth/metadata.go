@@ -21,6 +21,7 @@ type authorizationServerMetadata struct {
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 	ClientIDMetadataDocumentSupported bool     `json:"client_id_metadata_document_supported"`
 	ScopesSupported                   []string `json:"scopes_supported"`
+	IssParameterSupported             bool     `json:"authorization_response_iss_parameter_supported"`
 }
 
 func (s *Server) authorizationServerMetadataHandler() http.Handler {
@@ -37,6 +38,7 @@ func (s *Server) authorizationServerMetadataHandler() http.Handler {
 		TokenEndpointAuthMethodsSupported: []string{authMethodNone},
 		ClientIDMetadataDocumentSupported: true,
 		ScopesSupported:                   []string{scopeMealie},
+		IssParameterSupported:             true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, metadata)
