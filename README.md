@@ -152,6 +152,8 @@ login otherwise.
 
 The first connection opens Mealie's login, then one consent screen.
 
+ChatGPT, Cursor, and VS Code should work but are untested.
+
 ## Sessions
 
 - A session ends after `SESSION_MAX_AGE` (default 720h, 30 days).
@@ -168,11 +170,18 @@ Login, consent, token, and session events are logged as JSON lines with
 ## Backups
 
 All state lives in `/data/mealie-mcp.db`. Take a consistent copy while the
-server runs:
+server runs. The image has no shell and no `sqlite3`, so run the command from
+a separate container that mounts the data volume, for example with Alpine
+(replace `<project>_mcp-data` with your volume name from `docker volume ls`):
 
 ```sh
-sqlite3 /data/mealie-mcp.db "VACUUM INTO '/backup/mcp.db'"
+docker run --rm -v <project>_mcp-data:/data -v "$PWD":/backup alpine:3 \
+  sh -c "apk add --no-cache sqlite >/dev/null && sqlite3 /data/mealie-mcp.db \"VACUUM INTO '/backup/mcp.db'\""
 ```
+
+On a host with `sqlite3` installed and direct access to the volume's
+directory, `sqlite3 <volume dir>/mealie-mcp.db "VACUUM INTO 'mcp.db'"` does
+the same.
 
 Losing the database only forces everyone to log in again. Keep the encryption
 keys separately: the database is useless without them.
