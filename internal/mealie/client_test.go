@@ -313,6 +313,7 @@ func TestIsUnavailable(t *testing.T) {
 		{"404", &APIError{Status: 404}, false},
 		{"deadline", context.DeadlineExceeded, true},
 		{"wrapped deadline", fmt.Errorf("x: %w", context.DeadlineExceeded), true},
+		{"wrapped sentinel", fmt.Errorf("x: %w", ErrUnavailable), true},
 		{"net error", &url.Error{Op: "Get", URL: "http://x", Err: errors.New("connection refused")}, true},
 		{"canceled", context.Canceled, false},
 		{"canceled url error", &url.Error{Op: "Get", URL: "http://x", Err: context.Canceled}, false},

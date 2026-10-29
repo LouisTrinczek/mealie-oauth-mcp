@@ -26,6 +26,8 @@ const (
 	redactedMarker   = "[REDACTED]"
 )
 
+var ErrUnavailable = errors.New("mealie unavailable, try again")
+
 var (
 	defaultBackoff = []time.Duration{200 * time.Millisecond, 600 * time.Millisecond}
 	bearerPattern  = regexp.MustCompile(`(?i)bearer\s+\S+`)
@@ -71,6 +73,9 @@ func IsUnauthorized(err error) bool {
 }
 
 func IsUnavailable(err error) bool {
+	if errors.Is(err, ErrUnavailable) {
+		return true
+	}
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.Status >= http.StatusInternalServerError

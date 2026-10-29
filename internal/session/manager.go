@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	ErrUnavailable = errors.New("mealie unavailable, try again")
+	ErrUnavailable = mealie.ErrUnavailable
 	errInternal    = errors.New("internal error")
 )
 
