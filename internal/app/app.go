@@ -26,12 +26,13 @@ import (
 )
 
 const (
-	readHeaderTimeout = 10 * time.Second
-	readTimeout       = 30 * time.Second
-	writeTimeout      = 0
-	idleTimeout       = 120 * time.Second
-	maxHeaderBytes    = 64 << 10
-	shutdownTimeout   = 20 * time.Second
+	readHeaderTimeout   = 10 * time.Second
+	readTimeout         = 30 * time.Second
+	writeTimeout        = 0
+	idleTimeout         = 120 * time.Second
+	maxHeaderBytes      = 64 << 10
+	shutdownTimeout     = 20 * time.Second
+	shutdownGracePeriod = 5 * time.Second
 
 	mcpSessionTimeout   = 30 * time.Minute
 	mcpMaxRequestBytes  = 4 << 20
@@ -43,16 +44,18 @@ const (
 
 	startupRetries    = 5
 	startupRetryDelay = 6 * time.Second
+	startupReachLimit = 30 * time.Second
 	userAgentPrefix   = "mealie-oauth-mcp/"
 )
 
 type App struct {
-	cfg     *config.Config
-	logger  *slog.Logger
-	store   *store.Store
-	mealie  *mealie.Client
-	now     func() time.Time
-	handler http.Handler
+	cfg           *config.Config
+	logger        *slog.Logger
+	store         *store.Store
+	mealie        *mealie.Client
+	now           func() time.Time
+	handler       http.Handler
+	shutdownGrace time.Duration
 }
 
 func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) (*App, error) {
@@ -62,11 +65,12 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version s
 	}
 	client := mealie.New(cfg.MealieURL, mealie.Options{UserAgent: userAgentPrefix + version})
 	check := startupCheck{
-		mealie:     client,
-		mealieURL:  cfg.MealieURL.String(),
-		logger:     logger,
-		retries:    startupRetries,
-		retryDelay: startupRetryDelay,
+		mealie:       client,
+		mealieURL:    cfg.MealieURL.String(),
+		logger:       logger,
+		retries:      startupRetries,
+		retryDelay:   startupRetryDelay,
+		reachTimeout: startupReachLimit,
 	}
 	if err := check.run(ctx); err != nil {
 		return nil, err
@@ -75,7 +79,7 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version s
 	if err != nil {
 		return nil, fmt.Errorf("opening store: %w", err)
 	}
-	a := &App{cfg: cfg, logger: logger, store: st, mealie: client, now: time.Now}
+	a := &App{cfg: cfg, logger: logger, store: st, mealie: client, now: time.Now, shutdownGrace: shutdownGracePeriod}
 	a.handler, err = a.routes(keyring, version)
 	if err != nil {
 		return nil, errors.Join(err, st.Close())
@@ -200,7 +204,9 @@ func (a *App) Run(ctx context.Context) error {
 	var cleanup sync.WaitGroup
 	cleanup.Go(func() { a.cleanupLoop(ctx) })
 
-	srv := a.httpServer(ctx)
+	requests, endRequests := context.WithCancel(context.WithoutCancel(ctx))
+	defer endRequests()
+	srv := a.httpServer(requests)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(listener) }()
 
@@ -208,7 +214,7 @@ func (a *App) Run(ctx context.Context) error {
 	case err = <-served:
 		err = fmt.Errorf("serving http: %w", err)
 	case <-ctx.Done():
-		err = shutdown(ctx, srv)
+		err = a.shutdown(ctx, srv, endRequests)
 	}
 	stop()
 	cleanup.Wait()
@@ -228,9 +234,11 @@ func (a *App) httpServer(requests context.Context) *http.Server {
 	}
 }
 
-func shutdown(ctx context.Context, srv *http.Server) error {
+func (a *App) shutdown(ctx context.Context, srv *http.Server, endRequests context.CancelFunc) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
+	graceOver := time.AfterFunc(a.shutdownGrace, endRequests)
+	defer graceOver.Stop()
 	if err := srv.Shutdown(ctx); err != nil {
 		return errors.Join(fmt.Errorf("shutting down http server: %w", err), srv.Close())
 	}
@@ -271,11 +279,12 @@ type mealieProbe interface {
 }
 
 type startupCheck struct {
-	mealie     mealieProbe
-	mealieURL  string
-	logger     *slog.Logger
-	retries    int
-	retryDelay time.Duration
+	mealie       mealieProbe
+	mealieURL    string
+	logger       *slog.Logger
+	retries      int
+	retryDelay   time.Duration
+	reachTimeout time.Duration
 }
 
 func (c startupCheck) run(ctx context.Context) error {
@@ -296,19 +305,25 @@ func (c startupCheck) run(ctx context.Context) error {
 }
 
 func (c startupCheck) about(ctx context.Context) (mealie.About, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.reachTimeout)
+	defer cancel()
 	for attempt := 0; ; attempt++ {
 		about, err := c.mealie.About(ctx)
 		if err == nil {
 			return about, nil
 		}
 		if attempt == c.retries || !mealie.IsUnavailable(err) {
-			return mealie.About{}, fmt.Errorf("cannot reach Mealie at %s: %w", c.mealieURL, err)
+			return mealie.About{}, c.unreachable(err)
 		}
 		c.logger.WarnContext(ctx, "Mealie is not reachable yet, retrying", slog.Int("attempt", attempt+1))
-		if err := sleep(ctx, c.retryDelay); err != nil {
-			return mealie.About{}, err
+		if waitErr := sleep(ctx, c.retryDelay); waitErr != nil {
+			return mealie.About{}, c.unreachable(errors.Join(err, waitErr))
 		}
 	}
+}
+
+func (c startupCheck) unreachable(err error) error {
+	return fmt.Errorf("cannot reach Mealie at %s: %w", c.mealieURL, err)
 }
 
 func (c startupCheck) checkVersion(ctx context.Context, version string) error {

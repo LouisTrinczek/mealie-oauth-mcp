@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -275,7 +276,7 @@ func TestStartupCheck_RetriesUnreachableMealie(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			probe := &fakeProbe{aboutErrs: tt.errs}
-			check := startupCheck{mealie: probe, mealieURL: "http://mealie.test", logger: slog.New(slog.DiscardHandler), retries: startupRetries, retryDelay: time.Millisecond}
+			check := startupCheck{mealie: probe, mealieURL: "http://mealie.test", logger: slog.New(slog.DiscardHandler), retries: startupRetries, retryDelay: time.Millisecond, reachTimeout: time.Minute}
 			err := check.run(t.Context())
 			if probe.calls != tt.wantCalls {
 				t.Errorf("About calls = %d, want %d", probe.calls, tt.wantCalls)
@@ -298,10 +299,38 @@ func TestStartupCheck_StopsWhenCanceled(t *testing.T) {
 	probe := &fakeProbe{aboutErrs: []error{outage, outage}}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	check := startupCheck{mealie: probe, mealieURL: "http://mealie.test", logger: slog.New(slog.DiscardHandler), retries: startupRetries, retryDelay: time.Hour}
+	check := startupCheck{mealie: probe, mealieURL: "http://mealie.test", logger: slog.New(slog.DiscardHandler), retries: startupRetries, retryDelay: time.Hour, reachTimeout: time.Minute}
 
 	if err := check.run(ctx); !errors.Is(err, context.Canceled) {
 		t.Errorf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestStartupCheck_GivesUpOnHangingMealie(t *testing.T) {
+	hanging := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(hanging.Close)
+	base, err := url.Parse(hanging.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	check := startupCheck{
+		mealie:       mealie.New(base, mealie.Options{}),
+		mealieURL:    hanging.URL,
+		logger:       slog.New(slog.DiscardHandler),
+		retries:      startupRetries,
+		retryDelay:   10 * time.Millisecond,
+		reachTimeout: 200 * time.Millisecond,
+	}
+
+	started := time.Now()
+	err = check.run(t.Context())
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Errorf("check took %v, want it bounded by the reachability timeout", elapsed)
+	}
+	if err == nil || !strings.HasPrefix(err.Error(), "cannot reach Mealie at "+hanging.URL) {
+		t.Errorf("error = %v, want cannot reach Mealie at %s", err, hanging.URL)
 	}
 }
 
@@ -321,14 +350,26 @@ func TestApp_MCPWithoutTokenIs401WithMetadata(t *testing.T) {
 func TestApp_MCPRejectsCrossOriginBrowserRequests(t *testing.T) {
 	a, _ := startApp(t)
 	access := seedSession(t, a)
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", strings.NewReader(`{}`))
-	req.Header.Set("Authorization", "Bearer "+access)
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	rec := httptest.NewRecorder()
-	a.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", rec.Code)
+	tests := []struct {
+		name          string
+		authorization string
+	}{
+		{"WithToken", "Bearer " + access},
+		{"WithoutToken", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", strings.NewReader(`{}`))
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			req.Header.Set("Sec-Fetch-Site", "cross-site")
+			rec := httptest.NewRecorder()
+			a.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want 403 before any token check", rec.Code)
+			}
+		})
 	}
 }
 
@@ -509,33 +550,101 @@ func TestApp_MCPStreamIsFlushedThroughMiddleware(t *testing.T) {
 	openStream(t, ctx, ts.URL+"/mcp", access)
 }
 
+type runningApp struct {
+	stop    context.CancelFunc
+	done    chan error
+	baseURL string
+}
+
+func runApp(t *testing.T, a *App, logs *syncBuffer) runningApp {
+	t.Helper()
+	ctx, stop := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	return runningApp{stop: stop, done: done, baseURL: "http://" + listenAddr(t, logs)}
+}
+
+func (r runningApp) requireCleanStop(t *testing.T, within time.Duration) time.Duration {
+	t.Helper()
+	started := time.Now()
+	r.stop()
+	select {
+	case err := <-r.done:
+		if err != nil {
+			t.Errorf("Run = %v, want nil after a clean shutdown", err)
+		}
+	case <-time.After(within):
+		t.Fatalf("Run did not return within %v", within)
+	}
+	return time.Since(started)
+}
+
 func TestApp_ShutdownEndsOpenStreams(t *testing.T) {
 	fake := startFakeMealie(t, currentAbout, http.StatusOK)
 	logs := &syncBuffer{}
 	a := newTestApp(t, testConfig(t, fake.URL), logs)
+	a.shutdownGrace = 200 * time.Millisecond
 	access := seedSession(t, a)
-	runCtx, stopRun := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- a.Run(runCtx) }()
+	running := runApp(t, a, logs)
 	streamCtx, cancelStream := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancelStream()
-	stream := openStream(t, streamCtx, "http://"+listenAddr(t, logs)+"/mcp", access)
+	stream := openStream(t, streamCtx, running.baseURL+"/mcp", access)
 
-	started := time.Now()
-	stopRun()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("Run = %v, want nil after a clean shutdown", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return within 5s while a stream was open")
-	}
+	elapsed := running.requireCleanStop(t, a.shutdownGrace+2*time.Second)
 	if _, err := io.Copy(io.Discard, stream); err != nil {
 		t.Errorf("stream ended with %v, want a clean close", err)
 	}
-	if elapsed := time.Since(started); elapsed > 5*time.Second {
-		t.Errorf("shutdown took %v, want it well under the 20s backstop", elapsed)
+	if elapsed < a.shutdownGrace {
+		t.Errorf("stream ended after %v, want the %v grace period first", elapsed, a.shutdownGrace)
+	}
+}
+
+func TestApp_ShutdownLetsInFlightRequestsFinish(t *testing.T) {
+	var slow atomic.Bool
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	mealieServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/app/about" && slow.Load() {
+			close(entered)
+			<-release
+		}
+		if r.URL.Path == "/api/app/about" {
+			_, _ = io.WriteString(w, currentAbout)
+			return
+		}
+		_, _ = io.WriteString(w, `{"authorization_endpoint":"https://idp.example/authorize","client_id":"mealie","scope":"openid"}`)
+	}))
+	t.Cleanup(mealieServer.Close)
+	logs := &syncBuffer{}
+	a := newTestApp(t, testConfig(t, mealieServer.URL), logs)
+	a.shutdownGrace = 5 * time.Second
+	running := runApp(t, a, logs)
+	slow.Store(true)
+
+	status := make(chan int, 1)
+	go func() {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, running.baseURL+"/readyz", nil)
+		if err != nil {
+			status <- 0
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			status <- 0
+			return
+		}
+		_ = resp.Body.Close()
+		status <- resp.StatusCode
+	}()
+	<-entered
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		close(release)
+	}()
+
+	running.requireCleanStop(t, 3*time.Second)
+	if got := <-status; got != http.StatusOK {
+		t.Errorf("in-flight readyz = %d, want 200 completed during the grace period", got)
 	}
 }
 
@@ -575,12 +684,9 @@ func TestApp_RunServesUntilCanceled(t *testing.T) {
 	fake := startFakeMealie(t, currentAbout, http.StatusOK)
 	logs := &syncBuffer{}
 	a := newTestApp(t, testConfig(t, fake.URL), logs)
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- a.Run(ctx) }()
+	running := runApp(t, a, logs)
 
-	addr := listenAddr(t, logs)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/healthz", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, running.baseURL+"/healthz", nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -592,16 +698,7 @@ func TestApp_RunServesUntilCanceled(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("healthz = %d, want 200", resp.StatusCode)
 	}
-
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("Run = %v, want nil after shutdown", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after the context was canceled")
-	}
+	running.requireCleanStop(t, 5*time.Second)
 }
 
 func TestApp_RunFailsOnInvalidListenAddr(t *testing.T) {

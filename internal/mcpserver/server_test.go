@@ -170,6 +170,9 @@ func requireToolError(t *testing.T, res *mcp.CallToolResult, want string) {
 	if got := resultText(t, res); got != want {
 		t.Errorf("message = %q, want %q", got, want)
 	}
+	if res.StructuredContent != nil {
+		t.Errorf("structured content = %v, want none on a tool error", res.StructuredContent)
+	}
 }
 
 func TestWhoami_ReturnsUser(t *testing.T) {
@@ -323,15 +326,5 @@ func TestWhoami_Annotations(t *testing.T) {
 	}
 	if tool.OutputSchema == nil {
 		t.Error("output schema missing")
-	}
-}
-
-func TestToolError(t *testing.T) {
-	res := toolError("something failed")
-	if !res.IsError {
-		t.Error("IsError = false")
-	}
-	if got := resultText(t, res); got != "something failed" {
-		t.Errorf("text = %q", got)
 	}
 }

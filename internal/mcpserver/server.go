@@ -10,13 +10,19 @@ import (
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
 )
 
-const (
-	serverName = "mealie-oauth-mcp"
+const serverName = "mealie-oauth-mcp"
 
-	sessionEndedMessage   = "Your Mealie session ended. Reconnect this app to log in again."
-	unavailableMessage    = "Mealie is unavailable right now. Try again shortly."
-	profileFailureMessage = "Could not read your Mealie profile. Try again."
+const (
+	errSessionEnded      toolFailure = "Your Mealie session ended. Reconnect this app to log in again."
+	errMealieUnavailable toolFailure = "Mealie is unavailable right now. Try again shortly."
+	errProfileUnreadable toolFailure = "Could not read your Mealie profile. Try again."
 )
+
+type toolFailure string
+
+func (f toolFailure) Error() string {
+	return string(f)
+}
 
 type TokenSource interface {
 	MealieToken(ctx context.Context, info *auth.TokenInfo) (secret.Secret, error)
@@ -62,11 +68,11 @@ func (w whoami) handle(ctx context.Context, req *mcp.CallToolRequest, _ struct{}
 	info := tokenInfo(req)
 	tok, err := w.tokens.MealieToken(ctx, info)
 	if err != nil {
-		return tokenFailure(err), whoamiOutput{}, nil
+		return nil, whoamiOutput{}, tokenFailure(err)
 	}
 	user, err := w.mealie.Self(ctx, tok)
 	if err != nil {
-		return w.profileFailure(ctx, info, err), whoamiOutput{}, nil
+		return nil, whoamiOutput{}, w.profileFailure(ctx, info, err)
 	}
 	return nil, whoamiOutput{
 		Username:  user.Username,
@@ -78,23 +84,23 @@ func (w whoami) handle(ctx context.Context, req *mcp.CallToolRequest, _ struct{}
 	}, nil
 }
 
-func (w whoami) profileFailure(ctx context.Context, info *auth.TokenInfo, err error) *mcp.CallToolResult {
+func (w whoami) profileFailure(ctx context.Context, info *auth.TokenInfo, err error) error {
 	switch {
 	case mealie.IsUnauthorized(err):
 		w.tokens.ReportUnauthorized(ctx, info)
-		return toolError(sessionEndedMessage)
+		return errSessionEnded
 	case mealie.IsUnavailable(err):
-		return toolError(unavailableMessage)
+		return errMealieUnavailable
 	default:
-		return toolError(profileFailureMessage)
+		return errProfileUnreadable
 	}
 }
 
-func tokenFailure(err error) *mcp.CallToolResult {
+func tokenFailure(err error) error {
 	if mealie.IsUnavailable(err) {
-		return toolError(unavailableMessage)
+		return errMealieUnavailable
 	}
-	return toolError(sessionEndedMessage)
+	return errSessionEnded
 }
 
 func tokenInfo(req *mcp.CallToolRequest) *auth.TokenInfo {
@@ -102,11 +108,4 @@ func tokenInfo(req *mcp.CallToolRequest) *auth.TokenInfo {
 		return nil
 	}
 	return req.Extra.TokenInfo
-}
-
-func toolError(msg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
-	}
 }
