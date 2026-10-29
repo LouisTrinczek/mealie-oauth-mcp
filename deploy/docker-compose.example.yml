@@ -6,6 +6,9 @@ services:
     env_file: ../.env
     environment:
       ENCRYPTION_KEYS_FILE: /run/secrets/mcp_encryption_keys
+      # Required behind the reverse proxy; set it in .env (see .env.example) or
+      # here, to the subnet the proxy connects from (see README, Deployment).
+      # TRUSTED_PROXIES: 172.18.0.0/16
     secrets:
       - mcp_encryption_keys
     volumes:

@@ -45,6 +45,17 @@ as a non-root user, needs only a writable `/data` volume, and publishes no
 port: put a reverse proxy that terminates TLS in front of it and forward to
 port 8080.
 
+Set `TRUSTED_PROXIES` to the address range your reverse proxy connects from,
+for example the Docker network's subnet (`docker network inspect <network>`
+shows it). The OAuth endpoints (`/register`, `/authorize`, `/callback`,
+`/token`, `/revoke`) allow 30 requests per minute per client address. Without
+`TRUSTED_PROXIES` the server sees every request as coming from the proxy, so
+all users share one budget, and one request every two seconds from anyone is
+enough to block every login and token refresh. With it, the server takes the
+client address from the proxy's `X-Forwarded-For` header. List only your own
+proxies: a client inside a trusted range can claim any address. The server
+logs a warning at startup when the variable is empty.
+
 The server answers these routes:
 
 | Route | Purpose |
@@ -96,7 +107,7 @@ Every variable can be set in the environment. Empty values count as unset.
 | `ACCESS_TOKEN_TTL` | no | `1h` | MCP access token lifetime; between `5m` and `24h` |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
 | `LOG_FORMAT` | no | `json` | `json` or `text` |
-| `TRUSTED_PROXIES` | no | | Comma-separated CIDRs of reverse proxies whose forwarded client address is trusted for rate limiting |
+| `TRUSTED_PROXIES` | behind a reverse proxy | | Comma-separated CIDRs of reverse proxies whose `X-Forwarded-For` client address is trusted for rate limiting (see [Deployment](#deployment)) |
 | `INSECURE_ALLOW_HTTP` | no | `false` | Allows an `http://` `PUBLIC_URL`. Development and tests only |
 
 `ENCRYPTION_KEYS_FILE` is the only variable with a `_FILE` form. Prefer it
