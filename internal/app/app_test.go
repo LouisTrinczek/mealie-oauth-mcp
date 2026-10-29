@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -246,6 +247,31 @@ func TestApp_StartupWarnsOnUnparsableVersion(t *testing.T) {
 
 	if !strings.Contains(logs.String(), `"version":"nightly"`) || !strings.Contains(logs.String(), `"level":"WARN"`) {
 		t.Errorf("logs = %s, want a warning naming the version", logs)
+	}
+}
+
+func TestApp_StartupWarnsWithoutTrustedProxies(t *testing.T) {
+	tests := []struct {
+		name     string
+		proxies  []netip.Prefix
+		wantWarn bool
+	}{
+		{"unset", nil, true},
+		{"set", []netip.Prefix{netip.MustParsePrefix("172.18.0.0/16")}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := startFakeMealie(t, currentAbout, http.StatusOK)
+			cfg := testConfig(t, fake.URL)
+			cfg.TrustedProxies = tt.proxies
+			logs := &syncBuffer{}
+			newTestApp(t, cfg, logs)
+
+			warned := strings.Contains(logs.String(), `"level":"WARN","msg":"TRUSTED_PROXIES is not set`)
+			if warned != tt.wantWarn {
+				t.Errorf("TRUSTED_PROXIES warning = %v, want %v; logs: %s", warned, tt.wantWarn, logs)
+			}
+		})
 	}
 }
 

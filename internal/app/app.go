@@ -63,6 +63,7 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version s
 	if err != nil {
 		return nil, fmt.Errorf("loading encryption keys: %w", err)
 	}
+	warnWithoutTrustedProxies(ctx, cfg, logger)
 	client := mealie.New(cfg.MealieURL, mealie.Options{UserAgent: userAgentPrefix + version})
 	check := startupCheck{
 		mealie:       client,
@@ -85,6 +86,12 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version s
 		return nil, errors.Join(err, st.Close())
 	}
 	return a, nil
+}
+
+func warnWithoutTrustedProxies(ctx context.Context, cfg *config.Config, logger *slog.Logger) {
+	if len(cfg.TrustedProxies) == 0 {
+		logger.WarnContext(ctx, "TRUSTED_PROXIES is not set, so rate limiting treats a reverse proxy as a single client; set it to the proxy's CIDR (see README)")
+	}
 }
 
 func (a *App) Handler() http.Handler {
