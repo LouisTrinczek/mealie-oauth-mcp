@@ -551,19 +551,81 @@ func TestMealieToken_RejectsForeignInfo(t *testing.T) {
 	}
 }
 
-func TestMealieToken_UndecryptableIsInternalError(t *testing.T) {
-	env := newTestEnv(t)
-	other, err := env.keyring.Seal([]byte(testMealieToken), []byte("session:someone-else"))
+func (e *testEnv) storeUndecryptableToken(t *testing.T, keyring *tokencrypt.Keyring, aad string) {
+	t.Helper()
+	ct, err := keyring.Seal([]byte(testMealieToken), []byte(aad))
 	if err != nil {
 		t.Fatalf("Seal: %v", err)
 	}
-	if err := env.store.UpdateSessionMealieToken(t.Context(), testSessionID, other, env.clock.Now().Add(testLifetime), testLifetime); err != nil {
+	if err := e.store.UpdateSessionMealieToken(t.Context(), testSessionID, ct, e.clock.Now().Add(testLifetime), testLifetime); err != nil {
 		t.Fatalf("UpdateSessionMealieToken: %v", err)
 	}
-	info := &auth.TokenInfo{Extra: map[string]any{"session_id": testSessionID}}
-	_, err = env.manager.MealieToken(t.Context(), info)
-	if err == nil || err.Error() != "internal error" {
-		t.Fatalf("MealieToken error = %v, want internal error", err)
+}
+
+func removedKeyring(t *testing.T) *tokencrypt.Keyring {
+	t.Helper()
+	keyring, err := tokencrypt.NewKeyring([]config.EncryptionKey{{ID: "k-removed", Material: secret.New(bytes.Repeat([]byte{9}, 32))}})
+	if err != nil {
+		t.Fatalf("NewKeyring: %v", err)
+	}
+	return keyring
+}
+
+func TestUndecryptableMealieTokenRevokesSession(t *testing.T) {
+	tests := []struct {
+		name string
+		seal func(t *testing.T, env *testEnv)
+		call func(t *testing.T, env *testEnv) error
+	}{
+		{
+			name: "Verify with removed key",
+			seal: func(t *testing.T, env *testEnv) {
+				env.storeUndecryptableToken(t, removedKeyring(t), "session:"+testSessionID)
+			},
+			call: func(t *testing.T, env *testEnv) error {
+				env.clock.advance(25 * time.Hour)
+				env.issueAccessToken(t, 2*time.Hour)
+				_, err := env.verify(t)
+				return err
+			},
+		},
+		{
+			name: "MealieToken with removed key",
+			seal: func(t *testing.T, env *testEnv) {
+				env.storeUndecryptableToken(t, removedKeyring(t), "session:"+testSessionID)
+			},
+			call: func(t *testing.T, env *testEnv) error {
+				_, err := env.manager.MealieToken(t.Context(), &auth.TokenInfo{Extra: map[string]any{"session_id": testSessionID}})
+				return err
+			},
+		},
+		{
+			name: "MealieToken with foreign AAD",
+			seal: func(t *testing.T, env *testEnv) {
+				env.storeUndecryptableToken(t, env.keyring, "session:someone-else")
+			},
+			call: func(t *testing.T, env *testEnv) error {
+				_, err := env.manager.MealieToken(t.Context(), &auth.TokenInfo{Extra: map[string]any{"session_id": testSessionID}})
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			tt.seal(t, env)
+
+			if err := tt.call(t, env); !errors.Is(err, auth.ErrInvalidToken) {
+				t.Fatalf("error = %v, want ErrInvalidToken", err)
+			}
+			env.requireRevoked(t)
+			if !strings.Contains(env.logs.String(), `"event":"session_revoked"`) {
+				t.Errorf("no session_revoked audit event in %s", env.logs.String())
+			}
+			if env.mealie.calls.Load() != 0 {
+				t.Error("RefreshToken must not be called with an undecryptable token")
+			}
+		})
 	}
 }
 

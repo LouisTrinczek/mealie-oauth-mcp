@@ -200,10 +200,19 @@ func (m *Manager) storeRenewed(ctx context.Context, id string, fresh mealie.Toke
 
 func (m *Manager) openMealieToken(ctx context.Context, session store.Session) (secret.Secret, error) {
 	plain, err := m.keyring.Open(session.MealieTokenCT, sessionAAD(session.ID))
+	if isDecryptionFailure(err) {
+		m.logger.WarnContext(ctx, "mealie token cannot be decrypted, revoking the session", slog.String("session_id", session.ID), slog.Any("error", err))
+		m.revoke(ctx, session.ID, audit.SessionRevoked)
+		return secret.Secret{}, auth.ErrInvalidToken
+	}
 	if err != nil {
 		return secret.Secret{}, m.internal(ctx, "opening mealie token", err)
 	}
 	return secret.New(plain), nil
+}
+
+func isDecryptionFailure(err error) bool {
+	return errors.Is(err, tokencrypt.ErrUnknownKey) || errors.Is(err, tokencrypt.ErrDecrypt)
 }
 
 func (m *Manager) revoke(ctx context.Context, id string, event audit.EventType) {
