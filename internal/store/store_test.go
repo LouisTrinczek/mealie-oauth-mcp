@@ -233,6 +233,34 @@ func TestPing_DatabaseWriteLocked(t *testing.T) {
 	}
 }
 
+func TestPing_CanceledWhileLockedStillRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	s := openTemp(t, dir)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	_ = s.probeWriteLock(ctx, cancel)
+
+	if err := s.GrantConsent(t.Context(), "user-1", "client-1", baseTime); err != nil {
+		t.Fatalf("GrantConsent: %v", err)
+	}
+	seedSession(t, s, testSession("s1"), "code-1")
+	if err := s.Ping(t.Context()); err != nil {
+		t.Fatalf("Ping after canceled ping: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened := openTemp(t, dir)
+	t.Cleanup(func() { _ = reopened.Close() })
+	if granted, err := reopened.HasConsent(t.Context(), "user-1", "client-1"); err != nil || !granted {
+		t.Fatalf("HasConsent after reopen = (%v, %v), want the consent committed", granted, err)
+	}
+	if _, err := reopened.GetSession(t.Context(), "s1"); err != nil {
+		t.Fatalf("GetSession after reopen: %v", err)
+	}
+}
+
 func TestMigrate_Failures(t *testing.T) {
 	tests := []struct {
 		name       string

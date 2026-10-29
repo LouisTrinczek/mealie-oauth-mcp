@@ -59,17 +59,26 @@ func (s *Store) Close() error {
 	return errors.Join(s.db.Close(), s.lock.Close())
 }
 
-func (s *Store) Ping(ctx context.Context) (err error) {
+func (s *Store) Ping(ctx context.Context) error {
+	return s.probeWriteLock(ctx, func() {})
+}
+
+func (s *Store) probeWriteLock(ctx context.Context, whileLocked func()) (err error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("acquiring connection: %w", err)
 	}
 	defer func() { err = errors.Join(err, conn.Close()) }()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return fmt.Errorf("beginning write transaction: %w", err)
+	_, beginErr := conn.ExecContext(ctx, "BEGIN IMMEDIATE")
+	if beginErr == nil {
+		whileLocked()
 	}
-	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
-		return fmt.Errorf("rolling back write transaction: %w", err)
+	_, rollbackErr := conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+	switch {
+	case beginErr != nil:
+		return fmt.Errorf("beginning write transaction: %w", beginErr)
+	case rollbackErr != nil:
+		return fmt.Errorf("rolling back write transaction: %w", rollbackErr)
 	}
 	return nil
 }
