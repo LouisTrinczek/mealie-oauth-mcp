@@ -200,7 +200,7 @@ func (a *App) Run(ctx context.Context) error {
 	var cleanup sync.WaitGroup
 	cleanup.Go(func() { a.cleanupLoop(ctx) })
 
-	srv := a.httpServer()
+	srv := a.httpServer(ctx)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(listener) }()
 
@@ -215,9 +215,10 @@ func (a *App) Run(ctx context.Context) error {
 	return err
 }
 
-func (a *App) httpServer() *http.Server {
+func (a *App) httpServer(requests context.Context) *http.Server {
 	return &http.Server{
 		Handler:           a.handler,
+		BaseContext:       func(net.Listener) context.Context { return requests },
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,

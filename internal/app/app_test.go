@@ -447,10 +447,10 @@ func TestApp_WhoamiOverMCP(t *testing.T) {
 	}
 }
 
-func initializeMCP(t *testing.T, endpoint, access string) string {
+func initializeMCP(t *testing.T, ctx context.Context, endpoint, access string) string {
 	t.Helper()
 	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"raw","version":"0"}}}`
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, strings.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -470,16 +470,10 @@ func initializeMCP(t *testing.T, endpoint, access string) string {
 	return sessionID
 }
 
-func TestApp_MCPStreamIsFlushedThroughMiddleware(t *testing.T) {
-	a, _ := startApp(t)
-	access := seedSession(t, a)
-	ts := httptest.NewServer(a.Handler())
-	t.Cleanup(ts.Close)
-	sessionID := initializeMCP(t, ts.URL+"/mcp", access)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/mcp", nil)
+func openStream(t *testing.T, ctx context.Context, endpoint, access string) io.ReadCloser {
+	t.Helper()
+	sessionID := initializeMCP(t, ctx, endpoint, access)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -490,7 +484,7 @@ func TestApp_MCPStreamIsFlushedThroughMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stream did not start before the handler returned: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("stream status = %d, want 200", resp.StatusCode)
 	}
@@ -500,6 +494,48 @@ func TestApp_MCPStreamIsFlushedThroughMiddleware(t *testing.T) {
 	}
 	if !strings.HasPrefix(line, ":") {
 		t.Errorf("first line = %q, want an SSE comment", line)
+	}
+	return resp.Body
+}
+
+func TestApp_MCPStreamIsFlushedThroughMiddleware(t *testing.T) {
+	a, _ := startApp(t)
+	access := seedSession(t, a)
+	ts := httptest.NewServer(a.Handler())
+	t.Cleanup(ts.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	openStream(t, ctx, ts.URL+"/mcp", access)
+}
+
+func TestApp_ShutdownEndsOpenStreams(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	logs := &syncBuffer{}
+	a := newTestApp(t, testConfig(t, fake.URL), logs)
+	access := seedSession(t, a)
+	runCtx, stopRun := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(runCtx) }()
+	streamCtx, cancelStream := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancelStream()
+	stream := openStream(t, streamCtx, "http://"+listenAddr(t, logs)+"/mcp", access)
+
+	started := time.Now()
+	stopRun()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Run = %v, want nil after a clean shutdown", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return within 5s while a stream was open")
+	}
+	if _, err := io.Copy(io.Discard, stream); err != nil {
+		t.Errorf("stream ended with %v, want a clean close", err)
+	}
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Errorf("shutdown took %v, want it well under the 20s backstop", elapsed)
 	}
 }
 
