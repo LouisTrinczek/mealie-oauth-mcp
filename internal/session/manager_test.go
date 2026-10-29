@@ -268,11 +268,21 @@ func TestVerify_Rejected(t *testing.T) {
 
 func TestVerify_SessionCap(t *testing.T) {
 	env := newTestEnv(t)
+	beyondCap := testSessionMaxAge + 2*time.Hour
+	if err := env.store.UpdateSessionMealieToken(t.Context(), testSessionID, env.storedSession(t).MealieTokenCT, env.clock.Now().Add(beyondCap), beyondCap); err != nil {
+		t.Fatalf("UpdateSessionMealieToken: %v", err)
+	}
 	env.issueAccessToken(t, testSessionMaxAge+time.Hour)
 	env.clock.advance(testSessionMaxAge)
 	_, err := env.verify(t)
 	if !errors.Is(err, auth.ErrInvalidToken) {
 		t.Fatalf("Verify error = %v, want ErrInvalidToken", err)
+	}
+	if env.mealie.calls.Load() != 0 {
+		t.Error("RefreshToken must not be called past the session cap")
+	}
+	if strings.Contains(env.logs.String(), `"event":"session_expired"`) {
+		t.Error("the Mealie expiry rule rejected the token, not the session cap")
 	}
 }
 
@@ -462,13 +472,12 @@ func TestVerify_ErrorMessagesGeneric(t *testing.T) {
 	}
 	env.clock.advance(25 * time.Hour)
 	env.issueAccessToken(t, 2*time.Hour)
-	_, refreshErr := env.verify(t)
-	if refreshErr == nil {
-		t.Fatal("Verify succeeded after an unclassified refresh failure")
+	if _, err := env.verify(t); err != nil {
+		t.Fatalf("Verify after an unclassified refresh failure: %v", err)
 	}
 	env.clock.advance(time.Hour)
 	_, expiredErr := env.manager.Verify(t.Context(), "mmcp_rt_"+strings.Repeat("a", 43), nil)
-	for _, err := range []error{refreshErr, expiredErr} {
+	for _, err := range []error{expiredErr} {
 		message := err.Error()
 		if message != "invalid token" && message != "internal error" {
 			t.Errorf("error message %q is not generic", message)
@@ -750,18 +759,36 @@ func TestVerify_RenewSkippedWhenSessionChangedMeanwhile(t *testing.T) {
 	}
 }
 
-func TestVerify_UnclassifiedRefreshErrorOmitsSecrets(t *testing.T) {
-	env := newTestEnv(t)
-	env.mealie.refresh = func(context.Context, secret.Secret) (mealie.Token, error) {
-		return mealie.Token{}, errors.New("status 400 with " + testMealieToken)
+func TestVerify_UnexpectedRefreshErrorKeepsSession(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantInLog string
+	}{
+		{"Forbidden", &mealie.APIError{Status: http.StatusForbidden, Message: testMealieToken}, `"mealie_status":403`},
+		{"Undecodable", errors.New("decoding " + testMealieToken), `"error_type":"*errors.errorString"`},
 	}
-	env.clock.advance(25 * time.Hour)
-	env.issueAccessToken(t, 2*time.Hour)
-	_, err := env.verify(t)
-	if err == nil || err.Error() != "internal error" {
-		t.Fatalf("Verify error = %v, want internal error", err)
-	}
-	if strings.Contains(env.logs.String(), testMealieToken) {
-		t.Errorf("logs leak the Mealie token: %s", env.logs.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			env.mealie.refresh = func(context.Context, secret.Secret) (mealie.Token, error) { return mealie.Token{}, tt.err }
+			env.clock.advance(25 * time.Hour)
+			env.issueAccessToken(t, 2*time.Hour)
+			if _, err := env.verify(t); err != nil {
+				t.Fatalf("Verify: %v", err)
+			}
+			env.requireNotRevoked(t)
+			stored := env.storedSession(t)
+			if plain, err := env.keyring.Open(stored.MealieTokenCT, []byte("session:"+testSessionID)); err != nil || string(plain) != testMealieToken {
+				t.Errorf("stored token changed: %q, %v", plain, err)
+			}
+			logs := env.logs.String()
+			if !strings.Contains(logs, tt.wantInLog) || !strings.Contains(logs, `"level":"WARN"`) {
+				t.Errorf("warning with %s not logged: %s", tt.wantInLog, logs)
+			}
+			if strings.Contains(logs, testMealieToken) {
+				t.Errorf("logs leak the Mealie token: %s", logs)
+			}
+		})
 	}
 }

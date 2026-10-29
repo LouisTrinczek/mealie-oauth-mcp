@@ -170,17 +170,20 @@ func (m *Manager) renew(ctx context.Context, id string) error {
 }
 
 func (m *Manager) refreshFailure(ctx context.Context, id string, err error) error {
-	switch {
-	case mealie.IsUnauthorized(err):
+	if mealie.IsUnauthorized(err) {
 		m.revoke(ctx, id, audit.SessionRevoked)
 		return auth.ErrInvalidToken
-	case mealie.IsUnavailable(err):
-		m.logger.WarnContext(ctx, "mealie unavailable, keeping the current token", slog.String("session_id", id))
-		return nil
-	default:
-		m.logger.ErrorContext(ctx, "mealie renewal failed", slog.String("session_id", id), slog.String("error_type", fmt.Sprintf("%T", err)))
-		return errInternal
 	}
+	m.logger.WarnContext(ctx, "mealie renewal failed, keeping the current token", slog.String("session_id", id), failureAttr(err))
+	return nil
+}
+
+func failureAttr(err error) slog.Attr {
+	var apiErr *mealie.APIError
+	if errors.As(err, &apiErr) {
+		return slog.Int("mealie_status", apiErr.Status)
+	}
+	return slog.String("error_type", fmt.Sprintf("%T", err))
 }
 
 func (m *Manager) storeRenewed(ctx context.Context, id string, fresh mealie.Token) error {
