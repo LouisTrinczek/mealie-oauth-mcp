@@ -32,6 +32,18 @@ linters:
     - dupl
     - unparam
     - depguard
+  exclusions:
+    rules:
+      # The browser-binding cookie drops Secure only when PUBLIC_URL is plain http (Config.SecureCookies).
+      - path: internal/oauth/authorize\.go
+        linters:
+          - gosec
+        text: G124
+      # Client redirects target only URIs that passed MatchRedirectURI; authorize tests pin this.
+      - path: internal/oauth/errors\.go
+        linters:
+          - gosec
+        text: G710
   settings:
     gocognit:
       min-complexity: 20
