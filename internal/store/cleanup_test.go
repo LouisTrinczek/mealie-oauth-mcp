@@ -44,10 +44,21 @@ func seedExpiryBoundaries(t *testing.T, s *Store, now time.Time) {
 		('cimd-stale', 'cimd', 'n', '[]', 0, ?),
 		('cimd-boundary', 'cimd', 'n', '[]', 0, ?),
 		('cimd-fresh', 'cimd', 'n', '[]', 0, ?),
-		('cimd-stale-with-session', 'cimd', 'n', '[]', 0, ?),
-		('dcr-old', 'dcr', 'n', '[]', 0, NULL)`,
+		('cimd-stale-with-session', 'cimd', 'n', '[]', 0, ?)`,
 		staleFetch, unixSeconds(now.Add(-clientMetadataTTL)), unixSeconds(now.Add(-time.Second)), staleFetch)
 	insertSession("s-for-cimd", "cimd-stale-with-session", after, nil)
+
+	staleRegistration := unixSeconds(now.Add(-unusedClientRetention - time.Second))
+	exec(`INSERT INTO clients (id, source, name, redirect_uris, created_at, metadata_fetched_at) VALUES
+		('dcr-stale', 'dcr', 'n', '[]', ?, NULL),
+		('dcr-boundary', 'dcr', 'n', '[]', ?, NULL),
+		('dcr-fresh', 'dcr', 'n', '[]', ?, NULL),
+		('dcr-stale-with-session', 'dcr', 'n', '[]', ?, NULL),
+		('dcr-stale-with-consent', 'dcr', 'n', '[]', ?, NULL)`,
+		staleRegistration, unixSeconds(now.Add(-unusedClientRetention)), unixSeconds(now.Add(-time.Second)),
+		staleRegistration, staleRegistration)
+	insertSession("s-for-dcr", "dcr-stale-with-session", after, nil)
+	exec(`INSERT INTO consents (mealie_user_id, client_id, granted_at) VALUES ('u', 'dcr-stale-with-consent', 0)`)
 }
 
 func survivingKeys(t *testing.T, s *Store, query string) []string {
@@ -80,7 +91,7 @@ func TestDeleteExpired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteExpired: %v", err)
 	}
-	const wantDeleted = 1 + 1 + 1 + 1 + 2 + 1
+	const wantDeleted = 1 + 1 + 1 + 1 + 2 + 2
 	if deleted != wantDeleted {
 		t.Fatalf("deleted = %d, want %d", deleted, wantDeleted)
 	}
@@ -91,11 +102,14 @@ func TestDeleteExpired(t *testing.T) {
 		want  []string
 	}{
 		{"pending_auths", `SELECT id FROM pending_auths ORDER BY 1`, []string{"pa-live"}},
-		{"sessions", `SELECT id FROM sessions ORDER BY 1`, []string{"s-for-cimd", "s-live", "s-revoked-boundary", "s-revoked-recent"}},
+		{"sessions", `SELECT id FROM sessions ORDER BY 1`, []string{"s-for-cimd", "s-for-dcr", "s-live", "s-revoked-boundary", "s-revoked-recent"}},
 		{"auth_codes", `SELECT hex(hash) FROM auth_codes ORDER BY 1`, []string{"02"}},
 		{"access_tokens", `SELECT hex(hash) FROM access_tokens ORDER BY 1`, []string{"02"}},
 		{"refresh_tokens", `SELECT hex(hash) FROM refresh_tokens ORDER BY 1`, []string{"02"}},
-		{"clients", `SELECT id FROM clients ORDER BY 1`, []string{"cimd-boundary", "cimd-fresh", "cimd-stale-with-session", "dcr-old"}},
+		{"clients", `SELECT id FROM clients ORDER BY 1`, []string{
+			"cimd-boundary", "cimd-fresh", "cimd-stale-with-session",
+			"dcr-boundary", "dcr-fresh", "dcr-stale-with-consent", "dcr-stale-with-session",
+		}},
 	}
 	for _, tt := range survivors {
 		t.Run(tt.name, func(t *testing.T) {

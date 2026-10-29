@@ -11,6 +11,8 @@ const revokedSessionRetention = 24 * time.Hour
 
 const clientMetadataTTL = 24 * time.Hour
 
+const unusedClientRetention = 24 * time.Hour
+
 func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int64, error) {
 	nowSeconds := unixSeconds(now)
 	statements := []struct {
@@ -28,6 +30,11 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int64, error)
 			WHERE source = 'cimd' AND metadata_fetched_at < ?
 			AND NOT EXISTS (SELECT 1 FROM sessions WHERE sessions.client_id = clients.id)`,
 			[]any{unixSeconds(now.Add(-clientMetadataTTL))}},
+		{"unused registered clients", `DELETE FROM clients
+			WHERE source = 'dcr' AND created_at < ?
+			AND NOT EXISTS (SELECT 1 FROM sessions WHERE sessions.client_id = clients.id)
+			AND NOT EXISTS (SELECT 1 FROM consents WHERE consents.client_id = clients.id)`,
+			[]any{unixSeconds(now.Add(-unusedClientRetention))}},
 	}
 	var deleted int64
 	err := s.inTx(ctx, func(tx *sql.Tx) error {

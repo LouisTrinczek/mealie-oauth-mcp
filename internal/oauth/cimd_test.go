@@ -105,6 +105,28 @@ func TestCIMD_Fetch(t *testing.T) {
 	}
 }
 
+func loopbackRedirectURIs(n int) []string {
+	uris := make([]string, n)
+	for i := range uris {
+		uris[i] = fmt.Sprintf("http://127.0.0.1/cb%d", i)
+	}
+	return uris
+}
+
+func TestCIMD_RejectsTooManyRedirectURIs(t *testing.T) {
+	srv := newTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		doc := testDocument(requestClientID(r))
+		doc["redirect_uris"] = loopbackRedirectURIs(maxRedirectURIs + 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(doc)
+	}))
+	f := newTestFetcher(srv, newFakeClock(), CIMDOptions{})
+
+	if _, err := f.Fetch(context.Background(), srv.URL+"/client.json"); err == nil {
+		t.Fatal("Fetch accepted a document with eleven redirect_uris")
+	}
+}
+
 func TestCIMD_RejectsPrivateIPs(t *testing.T) {
 	var hits atomic.Int32
 	srv := newTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -432,6 +454,11 @@ func TestParseCIMD(t *testing.T) {
 			doc["redirect_uris"] = []string{"https://client.example/cb", "javascript:alert(1)"}
 		}, true},
 		{"redirect uris wrong type", func(doc map[string]any) { doc["redirect_uris"] = "https://client.example/cb" }, true},
+		{"ten redirect uris", func(doc map[string]any) { doc["redirect_uris"] = loopbackRedirectURIs(maxRedirectURIs) }, false},
+		{"eleven redirect uris", func(doc map[string]any) { doc["redirect_uris"] = loopbackRedirectURIs(maxRedirectURIs + 1) }, true},
+		{"over-long redirect uri", func(doc map[string]any) {
+			doc["redirect_uris"] = []string{uriOfLength("https://client.example/", maxRedirectURIBytes+1)}
+		}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

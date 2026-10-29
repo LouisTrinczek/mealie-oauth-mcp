@@ -248,8 +248,8 @@ func (d cimdDocument) validate(clientID string) error {
 	if d.ClientID != clientID {
 		return errors.New("client metadata client_id does not match the URL it was fetched from")
 	}
-	if len(d.RedirectURIs) == 0 {
-		return errors.New("client metadata must list redirect_uris")
+	if len(d.RedirectURIs) == 0 || len(d.RedirectURIs) > maxRedirectURIs {
+		return fmt.Errorf("client metadata must list between 1 and %d redirect_uris", maxRedirectURIs)
 	}
 	for _, uri := range d.RedirectURIs {
 		if err := ValidateRedirectURIForRegistration(uri); err != nil {

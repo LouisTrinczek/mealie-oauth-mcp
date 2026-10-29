@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const maxRedirectURIBytes = 2048
+
 func MatchRedirectURI(registered []string, requested string) bool {
 	req, ok := parseRedirectURI(requested)
 	if !ok {
@@ -57,6 +59,9 @@ func isLoopbackHost(host string) bool {
 }
 
 func ValidateRedirectURIForRegistration(raw string) error {
+	if len(raw) > maxRedirectURIBytes {
+		return fmt.Errorf("redirect URI must be at most %d bytes", maxRedirectURIBytes)
+	}
 	if strings.Contains(raw, "#") {
 		return errors.New("redirect URI must not contain a fragment")
 	}

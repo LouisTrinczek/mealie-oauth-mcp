@@ -142,6 +142,11 @@ func TestRegister_Rejects(t *testing.T) {
 			code: "invalid_redirect_uri",
 		},
 		{
+			name: "over-long redirect URI",
+			body: registrationJSON(t, map[string]any{"redirect_uris": []string{uriOfLength("https://app.example/", maxRedirectURIBytes+1)}}),
+			code: "invalid_redirect_uri",
+		},
+		{
 			name: "17 KiB body",
 			body: `{"redirect_uris":["http://127.0.0.1/cb"],"client_name":"` + strings.Repeat("a", 17<<10) + `"}`,
 			code: "invalid_client_metadata",

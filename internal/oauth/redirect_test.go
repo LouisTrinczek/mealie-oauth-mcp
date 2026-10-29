@@ -77,15 +77,21 @@ func TestValidateRedirectURIForRegistration(t *testing.T) {
 		{"https:///cb", true},
 		{"https:opaque", true},
 		{"https://[::1/cb", true},
+		{uriOfLength("https://app.example/", maxRedirectURIBytes), false},
+		{uriOfLength("https://app.example/", maxRedirectURIBytes+1), true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.uri, func(t *testing.T) {
+		t.Run(tt.uri[:min(len(tt.uri), 64)], func(t *testing.T) {
 			err := ValidateRedirectURIForRegistration(tt.uri)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("err = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
+}
+
+func uriOfLength(prefix string, length int) string {
+	return prefix + strings.Repeat("a", length-len(prefix))
 }
 
 func FuzzMatchRedirectURI(f *testing.F) {

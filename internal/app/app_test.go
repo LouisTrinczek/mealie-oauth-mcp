@@ -656,8 +656,8 @@ func TestApp_DeleteExpiredLogsCount(t *testing.T) {
 	a.now = func() time.Time { return time.Now().Add(1000 * time.Hour) }
 
 	a.deleteExpired(t.Context())
-	if !strings.Contains(logs.String(), `"deleted":4`) {
-		t.Errorf("logs = %s, want deleted count 4", logs)
+	if !strings.Contains(logs.String(), `"deleted":5`) {
+		t.Errorf("logs = %s, want deleted count 5", logs)
 	}
 }
 
