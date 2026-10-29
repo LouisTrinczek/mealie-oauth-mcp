@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/audit"
@@ -36,7 +37,7 @@ func (s *Server) showConsent(w http.ResponseWriter, r *http.Request, pending sto
 		s.internalError(w, r, "getting client for consent", err)
 		return
 	}
-	s.renderHTML(w, r, s.consent, http.StatusOK, consentView{
+	s.renderHTML(w, r, s.consent, http.StatusOK, consentPolicy(pending.RedirectURI), consentView{
 		ClientName:   clientDisplayName(client),
 		Verified:     client.Source == sourceCIMD,
 		RedirectHost: displayHost(pending.RedirectURI),
@@ -188,4 +189,41 @@ func csrfToken(binding string) string {
 
 func validCSRF(submitted, binding string) bool {
 	return subtle.ConstantTimeCompare([]byte(submitted), []byte(csrfToken(binding))) == 1
+}
+
+func consentPolicy(redirectURI string) string {
+	if source, ok := formActionSource(redirectURI); ok {
+		return contentSecurityPolicy(source)
+	}
+	return contentSecurityPolicy()
+}
+
+func formActionSource(redirectURI string) (string, bool) {
+	u, err := url.Parse(redirectURI)
+	if err != nil || !onlyRunes(u.Scheme, isSchemeRune) {
+		return "", false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return u.Scheme + ":", true
+	}
+	if !onlyRunes(u.Host, isHostRune) {
+		return "", false
+	}
+	return u.Scheme + "://" + u.Host, true
+}
+
+func onlyRunes(s string, allowed func(rune) bool) bool {
+	return s != "" && !strings.ContainsFunc(s, func(r rune) bool { return !allowed(r) })
+}
+
+func isSchemeRune(r rune) bool {
+	return isASCIIAlphanumeric(r) || r == '+' || r == '-' || r == '.'
+}
+
+func isHostRune(r rune) bool {
+	return isASCIIAlphanumeric(r) || r == '-' || r == '.' || r == ':' || r == '[' || r == ']'
+}
+
+func isASCIIAlphanumeric(r rune) bool {
+	return 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9'
 }

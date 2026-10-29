@@ -641,10 +641,14 @@ func TestHTMLPages_SecurityHeaders(t *testing.T) {
 	callback := env.callbackURL(t, authorizeParams())
 	consentPage, _ := get(t, env.client, callback)
 
+	policies := map[string]string{
+		"error":   "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+		"consent": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' http://127.0.0.1:7777; frame-ancestors 'none'",
+	}
 	for name, resp := range map[string]reply{"error": errorPage, "consent": consentPage} {
 		t.Run(name, func(t *testing.T) {
 			want := map[string]string{
-				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+				"Content-Security-Policy": policies[name],
 				"X-Frame-Options":         "DENY",
 				"Content-Type":            "text/html; charset=utf-8",
 			}
@@ -654,6 +658,83 @@ func TestHTMLPages_SecurityHeaders(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestConsent_FormActionAllowsRedirectTarget(t *testing.T) {
+	tests := []struct {
+		name     string
+		redirect string
+		source   string
+	}{
+		{"loopback http with port", "http://127.0.0.1:7777/callback", "http://127.0.0.1:7777"},
+		{"loopback ipv6", "http://[::1]:9000/cb", "http://[::1]:9000"},
+		{"https", "https://app.example.com/oauth/cb?x=1", "https://app.example.com"},
+		{"private-use scheme", "com.example.app:/oauth/cb", "com.example.app:"},
+		{"https with userinfo", "https://user:hunter2@app.example.com:8443/cb", "https://app.example.com:8443"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestServer(t)
+			env.seedClient(t, store.Client{ID: testClientID, Source: "dcr", Name: testClientName, RedirectURIs: []string{tt.redirect}})
+			params := authorizeParams()
+			params.Set("redirect_uri", tt.redirect)
+
+			resp, body := env.callback(t, params)
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("callback status = %d; body: %s", resp.StatusCode, body)
+			}
+			want := "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' " + tt.source + "; frame-ancestors 'none'"
+			if got := resp.Header.Get("Content-Security-Policy"); got != want {
+				t.Fatalf("CSP = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestFormActionSource(t *testing.T) {
+	tests := []struct {
+		redirect string
+		source   string
+		ok       bool
+	}{
+		{"http://localhost/cb", "http://localhost", true},
+		{"https://APP.example.com/cb", "https://APP.example.com", true},
+		{"https://user:pw@app.example.com/cb", "https://app.example.com", true},
+		{"com.example.app:/cb", "com.example.app:", true},
+		{"https://evil.com;script-src'unsafe-inline'/cb", "", false},
+		{"https://a'b.example.com/cb", "", false},
+		{"https://a*.example.com/cb", "", false},
+		{"https:///cb", "", false},
+		{"http://[fe80::1%25en0]:80/cb", "", false},
+		{"::not a uri", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.redirect, func(t *testing.T) {
+			source, ok := formActionSource(tt.redirect)
+
+			if source != tt.source || ok != tt.ok {
+				t.Fatalf("formActionSource = (%q, %v), want (%q, %v)", source, ok, tt.source, tt.ok)
+			}
+		})
+	}
+}
+
+func TestConsent_UnsafeRedirectKeepsSelfOnlyFormAction(t *testing.T) {
+	env := newTestServer(t)
+	redirect := "https://evil.com;script-src'unsafe-inline'/cb"
+	env.seedClient(t, store.Client{ID: testClientID, Source: "dcr", Name: testClientName, RedirectURIs: []string{redirect}})
+	params := authorizeParams()
+	params.Set("redirect_uri", redirect)
+
+	resp, body := env.callback(t, params)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("callback status = %d; body: %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Content-Security-Policy"); got != "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'" {
+		t.Fatalf("CSP = %q", got)
 	}
 }
 
