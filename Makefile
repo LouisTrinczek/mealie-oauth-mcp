@@ -28,5 +28,4 @@ fuzz:
 	go test -run='^$$' -fuzz='^FuzzCIMDParse$$' -fuzztime=10s ./internal/oauth/
 
 test-integration:
-	$(INTEGRATION_COMPOSE) run --rm --build it
-	$(INTEGRATION_COMPOSE) down -v
+	$(INTEGRATION_COMPOSE) run --rm --build it; status=$$?; $(INTEGRATION_COMPOSE) down -v; exit $$status
