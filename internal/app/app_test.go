@@ -55,8 +55,25 @@ func (b *syncBuffer) String() string {
 
 type fakeMealie struct {
 	*httptest.Server
-	mu         sync.Mutex
-	userAgents []string
+	mu                sync.Mutex
+	userAgents        []string
+	exchangeRedirects []string
+}
+
+func (f *fakeMealie) recordExchange(r *http.Request) {
+	var body struct {
+		RedirectURI string `json:"redirect_uri"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.exchangeRedirects = append(f.exchangeRedirects, body.RedirectURI)
+}
+
+func (f *fakeMealie) seenExchangeRedirects() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.exchangeRedirects...)
 }
 
 func (f *fakeMealie) record(r *http.Request) {
@@ -86,6 +103,11 @@ func startFakeMealie(t *testing.T, about string, nativeConfigStatus int) *fakeMe
 			return
 		}
 		_, _ = io.WriteString(w, `{"authorization_endpoint":"https://idp.example/authorize","client_id":"mealie","scope":"openid"}`)
+	})
+	mux.HandleFunc("POST /api/auth/oauth/native/token", func(w http.ResponseWriter, r *http.Request) {
+		fake.record(r)
+		fake.recordExchange(r)
+		_, _ = io.WriteString(w, `{"access_token":"`+testMealieToken+`","token_type":"bearer","expires_in":172800}`)
 	})
 	mux.HandleFunc("GET /api/users/self", func(w http.ResponseWriter, r *http.Request) {
 		fake.record(r)
