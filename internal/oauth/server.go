@@ -47,6 +47,13 @@ type Store interface {
 	HasConsent(ctx context.Context, userID, clientID string) (bool, error)
 	GrantConsent(ctx context.Context, userID, clientID string, now time.Time) error
 	CreateSessionWithCode(ctx context.Context, session store.Session, code store.AuthCode) error
+	ConsumeAuthCode(ctx context.Context, hash []byte, now time.Time) (store.AuthCode, error)
+	IssueTokens(ctx context.Context, access store.AccessToken, refresh store.RefreshToken) error
+	GetAccessToken(ctx context.Context, hash []byte) (store.AccessToken, error)
+	GetRefreshToken(ctx context.Context, hash []byte) (store.RefreshToken, error)
+	RotateRefreshToken(ctx context.Context, oldHash []byte, now time.Time, next store.AccessToken, nextRefresh store.RefreshToken) (string, error)
+	GetSession(ctx context.Context, id string) (store.Session, error)
+	RevokeSession(ctx context.Context, id string, now time.Time) error
 }
 
 type MealieAuth interface {
@@ -120,4 +127,6 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /authorize", s.rateLimit(http.HandlerFunc(s.authorize)))
 	mux.Handle("GET /callback", s.rateLimit(http.HandlerFunc(s.callback)))
 	mux.HandleFunc("POST /consent", s.decideConsent)
+	mux.Handle("POST /token", s.rateLimit(http.HandlerFunc(s.token)))
+	mux.Handle("POST /revoke", s.rateLimit(http.HandlerFunc(s.revoke)))
 }
