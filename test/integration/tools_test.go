@@ -31,14 +31,13 @@ type toolGroups struct {
 }
 
 type namedItem struct {
-	ID      string `json:"id"`
-	Slug    string `json:"slug"`
-	Name    string `json:"name"`
-	Checked bool   `json:"checked"`
-	Subject string `json:"subject"`
-	Note    string `json:"note"`
-	Display string `json:"display"`
-
+	ID       string   `json:"id"`
+	Slug     string   `json:"slug"`
+	Name     string   `json:"name"`
+	Checked  bool     `json:"checked"`
+	Subject  string   `json:"subject"`
+	Note     string   `json:"note"`
+	Display  string   `json:"display"`
 	Quantity *float64 `json:"quantity"`
 }
 
@@ -81,6 +80,7 @@ func TestToolGroups(t *testing.T) {
 		{"mealplans_id_round_trip", g.updateAndDeletePlannedMeal},
 		{"shopping", g.shopForRecipe},
 		{"shopping_zero_quantity", g.zeroItemQuantity},
+		{"shopping_add_checked", g.addCheckedItem},
 		{"history", g.madeRecipe},
 		{"ingredients_parse", g.parseIngredient},
 		{"feedback_rating", g.rateRecipe},
@@ -216,11 +216,25 @@ func (g *toolGroups) zeroItemQuantity(t *testing.T) {
 	if len(before.Items) != 1 {
 		t.Fatalf("shopping list %s has %d items, want 1", g.listID, len(before.Items))
 	}
+	if quantity := before.Items[0].Quantity; quantity == nil || *quantity == 0 {
+		t.Fatalf("shopping list %s item %+v has no quantity before the update, so zeroing it proves nothing", g.listID, before.Items[0])
+	}
 	callOK(t, g.session, "shopping_write", map[string]any{"action": "update_items", "listId": g.listID, "items": []map[string]any{{"id": before.Items[0].ID, "quantity": 0}}}, nil)
 	var after itemsResult
 	callOK(t, g.session, "shopping_read", map[string]any{"action": "list", "id": g.listID}, &after)
 	if len(after.Items) != 1 || after.Items[0].Quantity != nil {
 		t.Fatalf("shopping list %s items %+v, want one item without a quantity", g.listID, after.Items)
+	}
+}
+
+func (g *toolGroups) addCheckedItem(t *testing.T) {
+	callOK(t, g.session, "shopping_write", map[string]any{"action": "add_items", "listId": g.listID, "items": []map[string]any{{"note": "pepper", "checked": true}}}, nil)
+	var read itemsResult
+	callOK(t, g.session, "shopping_read", map[string]any{"action": "list", "id": g.listID}, &read)
+	if !slices.ContainsFunc(read.Items, func(item namedItem) bool {
+		return item.Checked && (item.Note == "pepper" || item.Display == "pepper")
+	}) {
+		t.Fatalf("shopping list %s items %+v, want a checked item reading pepper", g.listID, read.Items)
 	}
 }
 

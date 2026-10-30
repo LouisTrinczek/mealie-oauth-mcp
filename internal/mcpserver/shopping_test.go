@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -45,6 +46,31 @@ func TestShoppingRead_ListView(t *testing.T) {
 		t.Fatalf("tool error: %s", resultText(t, res))
 	}
 	assertGolden(t, "shopping_list", resultText(t, res))
+}
+
+func TestShoppingRead_ListFullKeepsRawBody(t *testing.T) {
+	const raw = `{"id":"l-1","name":"Weekly","listItems":[],"extra":null}`
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, listsBase+"/l-1", http.StatusOK, raw)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "shopping_read", map[string]any{"action": "list", "id": "l-1", "full": true})
+	if got := resultText(t, res); res.IsError || got != raw {
+		t.Errorf("result = %s (error %v), want the raw body %s", got, res.IsError, raw)
+	}
+}
+
+func TestShoppingRead_DescribesFull(t *testing.T) {
+	cs := connectTools(t, newFakeMealie(t))
+	tool := findTool(t, cs, "shopping_read")
+
+	if want := "\n- list: Read one shopping list with its items and recipes. Needs id. Optional: full."; !strings.Contains(tool.Description, want) {
+		t.Errorf("description = %q, want it to contain %q", tool.Description, want)
+	}
+	full := schemaJSON(t, tool.InputSchema)["properties"].(map[string]any)["full"].(map[string]any)
+	if want := "list: return Mealie's full object instead of the compact one."; full["description"] != want {
+		t.Errorf("full description = %q, want %q", full["description"], want)
+	}
 }
 
 func TestShoppingWrite_CreateList(t *testing.T) {
@@ -297,6 +323,7 @@ func TestShoppingTools_MealieFailures(t *testing.T) {
 	}{
 		{"lists", "shopping_read", map[string]any{"action": "lists"}, http.MethodGet, listsBase, nil, notFound},
 		{"list", "shopping_read", map[string]any{"action": "list", "id": "l-1"}, http.MethodGet, listsBase + "/l-1", nil, notFound},
+		{"list full", "shopping_read", map[string]any{"action": "list", "id": "l-1", "full": true}, http.MethodGet, listsBase + "/l-1", nil, notFound},
 		{"create_list", "shopping_write", map[string]any{"action": "create_list", "name": "n"}, http.MethodPost, listsBase, nil, notFound},
 		{"update_list", "shopping_write", map[string]any{"action": "update_list", "id": "l-1", "fields": map[string]any{"name": "n"}}, http.MethodGet, listsBase + "/l-1", nil, notFound},
 		{"add_items", "shopping_write", map[string]any{"action": "add_items", "listId": "l-1", "items": []any{map[string]any{"note": "n"}}}, http.MethodPost, itemsBase + "/create-bulk", nil, notFound},

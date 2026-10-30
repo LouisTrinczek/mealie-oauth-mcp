@@ -161,15 +161,15 @@ ChatGPT, Cursor, and VS Code should work but are untested.
 |---|---|
 | `whoami` | none |
 | `account_read` | `household`, `group` (both accept `full`), `households` |
-| `recipes_read` | `search`, `get`, `suggest` |
+| `recipes_read` | `search`, `get` (accepts `full`), `suggest` |
 | `recipes_write` | `create`, `import_url`, `update`, `duplicate`, `delete`, `mark_made`, `set_image_url`, `add_asset_url`, `share`, `bulk_tag`, `bulk_categorize`, `bulk_delete` |
 | `history_read` | `timeline` |
 | `history_write` | `add`, `made_it`, `update`, `delete` |
 | `mealplans_read` | `list`, `today`, `rules` |
 | `mealplans_write` | `create`, `bulk_create`, `random`, `update`, `delete`, `rule_create`, `rule_update`, `rule_delete` |
-| `organizers_read` | `list`, `get`, `empty` |
+| `organizers_read` | `list`, `get` (accepts `full`), `empty` |
 | `organizers_write` | `create`, `update`, `delete`, `merge` |
-| `shopping_read` | `lists`, `list` |
+| `shopping_read` | `lists`, `list` (accepts `full`) |
 | `shopping_write` | `create_list`, `update_list`, `delete_list`, `add_items`, `update_items`, `delete_items`, `add_recipe`, `remove_recipe` |
 | `ingredients_read` | `list`, `get` (accepts `full`) and `empty` (all need `kind`), `parse` (no `kind`) |
 | `ingredients_write` | `create`, `update`, `delete`, `merge` |

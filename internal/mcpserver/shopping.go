@@ -30,6 +30,7 @@ type shoppingReadInput struct {
 	ID      string `json:"id,omitempty" jsonschema:"list: shopping list id."`
 	Page    int    `json:"page,omitempty" jsonschema:"lists: page number, starting at 1."`
 	PerPage int    `json:"perPage,omitempty" jsonschema:"lists: results per page (default 20, max 100)."`
+	Full    bool   `json:"full,omitempty" jsonschema:"list: return Mealie's full object instead of the compact one."`
 }
 
 func addShoppingRead(srv *mcp.Server, d Deps) error {
@@ -39,7 +40,7 @@ func addShoppingRead(srv *mcp.Server, d Deps) error {
 		read:    true,
 	}, []action[shoppingReadInput]{
 		{name: "lists", help: "List shopping lists. Optional: page, perPage.", run: listShoppingLists},
-		{name: "list", help: "Read one shopping list with its items and recipes. Needs id.", run: getShoppingList},
+		{name: "list", help: "Read one shopping list with its items and recipes. Needs id. Optional: full.", run: getShoppingList},
 	}, nil)
 }
 
@@ -59,7 +60,14 @@ func getShoppingList(ctx context.Context, s *session, in shoppingReadInput) (any
 	if err != nil {
 		return nil, err
 	}
-	return fetchListView(ctx, s, path)
+	if !in.Full {
+		return fetchListView(ctx, s, path)
+	}
+	raw, err := s.call(ctx, http.MethodGet, path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return trimmed(raw, true)
 }
 
 func fetchListView(ctx context.Context, s *session, path string) (any, error) {
