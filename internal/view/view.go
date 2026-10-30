@@ -1,6 +1,7 @@
 package view
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,11 +45,23 @@ var referenceKeys = []string{"id", "slug", "name", "username"}
 var labelKeys = []string{"name", "slug", "id"}
 
 func Trim(raw json.RawMessage) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	if err := decoder.Decode(&value); err != nil {
 		return nil, fmt.Errorf("decoding object: %w", err)
 	}
-	return json.Marshal(trimmed(value))
+	return marshal(trimmed(value))
+}
+
+func marshal(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
 }
 
 func trimmed(value any) any {
@@ -67,9 +80,7 @@ func trimmed(value any) any {
 	case []any:
 		out := make([]any, 0, len(typed))
 		for _, child := range typed {
-			if cleaned := trimmed(child); !isEmpty(cleaned) {
-				out = append(out, cleaned)
-			}
+			out = append(out, trimmed(child))
 		}
 		return out
 	default:
@@ -106,6 +117,16 @@ func reduce(value any) any {
 	switch typed := value.(type) {
 	case string:
 		return truncate(typed)
+	case float64:
+		if typed == 0 {
+			return nil
+		}
+		return typed
+	case json.Number:
+		if typed == "0" {
+			return nil
+		}
+		return typed
 	case map[string]any:
 		return pick(typed, referenceKeys)
 	case []any:
@@ -152,6 +173,9 @@ func label(object map[string]any) any {
 }
 
 func Page(raw json.RawMessage, fields []string) (map[string]any, error) {
+	if isJSONNull(raw) {
+		return nil, fmt.Errorf("decoding page: Mealie returned null")
+	}
 	var page struct {
 		Page       int   `json:"page"`
 		PerPage    int   `json:"per_page"`
@@ -177,6 +201,9 @@ func Page(raw json.RawMessage, fields []string) (map[string]any, error) {
 }
 
 func List(raw json.RawMessage, fields []string) (map[string]any, error) {
+	if isJSONNull(raw) {
+		return nil, fmt.Errorf("decoding list: Mealie returned null")
+	}
 	var list []any
 	if err := json.Unmarshal(raw, &list); err != nil {
 		return nil, fmt.Errorf("decoding list: %w", err)
@@ -186,6 +213,10 @@ func List(raw json.RawMessage, fields []string) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{"items": items, "total": len(items)}, nil
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
 func compactItems(raw []any, fields []string) ([]any, error) {
@@ -201,7 +232,7 @@ func compactItems(raw []any, fields []string) ([]any, error) {
 }
 
 func Encode(value any) ([]byte, error) {
-	encoded, err := json.Marshal(value)
+	encoded, err := marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("encoding result: %w", err)
 	}

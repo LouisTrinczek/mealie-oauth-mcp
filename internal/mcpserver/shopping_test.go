@@ -15,7 +15,7 @@ const (
 		`{"id":"i-1","display":"2 lemons","checked":false,"quantity":2,"note":"lemons","position":0,"shoppingListId":"l-1","label":{"id":"lb-1","name":"Produce","color":"#fff"},"extras":{}},` +
 		`{"id":"i-2","display":"milk","checked":true,"quantity":0,"note":"milk","position":1,"shoppingListId":"l-1","label":null}],` +
 		`"recipeReferences":[{"recipeId":"r-1","recipeQuantity":1,"recipe":{"id":"r-1","name":"Soup","slug":"soup"}},{"recipeId":"r-2","recipeQuantity":1,"recipe":null}],"labelSettings":[]}`
-	shoppingListView  = `{"id":"l-1","items":[{"checked":false,"display":"2 lemons","id":"i-1","label":{"id":"lb-1","name":"Produce"},"note":"lemons","quantity":2},{"checked":true,"display":"milk","id":"i-2","note":"milk","quantity":0}],"name":"Weekly","recipes":["Soup"]}`
+	shoppingListView  = `{"id":"l-1","items":[{"checked":false,"display":"2 lemons","id":"i-1","label":{"id":"lb-1","name":"Produce"},"note":"lemons","quantity":2},{"checked":true,"display":"milk","id":"i-2","note":"milk"}],"name":"Weekly","recipes":["Soup"]}`
 	shoppingListsPage = `{"page":1,"per_page":20,"total":1,"total_pages":1,"items":[{"id":"l-1","name":"Weekly","createdAt":"2026-10-01T00:00:00Z","listItems":[]}],"next":null,"previous":null}`
 )
 

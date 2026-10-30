@@ -72,7 +72,6 @@ func TestCompact_Rules(t *testing.T) {
 		"slugOnly":    []any{"only-slug"},
 		"idOnly":      []any{"only-id"},
 		"scalars":     []any{"a", "b"},
-		"rating":      float64(0),
 		"public":      false,
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -207,5 +206,104 @@ func TestPerPageAndPageNumber(t *testing.T) {
 		if got := PageNumber(in); got != want {
 			t.Errorf("PageNumber(%d) = %d, want %d", in, got, want)
 		}
+	}
+}
+
+func TestEncode_KeepsHTMLCharacters(t *testing.T) {
+	got, err := Encode(map[string]any{"name": "Mac & Cheese <Vegan>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"name":"Mac & Cheese <Vegan>"}` {
+		t.Errorf("Encode() = %s", got)
+	}
+}
+
+func TestTrim_KeepsHTMLCharacters(t *testing.T) {
+	got, err := Trim(json.RawMessage(`{"name":"Mac & Cheese <Vegan>"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"name":"Mac & Cheese <Vegan>"}` {
+		t.Errorf("Trim() = %s", got)
+	}
+}
+
+func TestTrim_KeepsLargeIntegers(t *testing.T) {
+	got, err := Trim(json.RawMessage(`{"n":9007199254740993}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"n":9007199254740993}` {
+		t.Errorf("Trim() = %s", got)
+	}
+}
+
+func TestTrim_KeepsArrayPositions(t *testing.T) {
+	in := `{"steps":["a","",null,{"x":null}],"nested":[[1],[]]}`
+	want := `{"nested":[[1],[]],"steps":["a","",null,{}]}`
+	got, err := Trim(json.RawMessage(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Errorf("Trim() = %s, want %s", got, want)
+	}
+}
+
+func TestPage_RejectsNull(t *testing.T) {
+	if _, err := Page(json.RawMessage(`null`), nil); err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestList_RejectsNull(t *testing.T) {
+	if _, err := List(json.RawMessage(`null`), nil); err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestCompact_DropsZeroNumbers(t *testing.T) {
+	tests := map[string]any{
+		"float64":     float64(0),
+		"json number": json.Number("0"),
+	}
+	for name, zero := range tests {
+		t.Run(name, func(t *testing.T) {
+			item := map[string]any{"quantity": zero, "checked": false, "rating": float64(4)}
+			got := Compact(item, []string{"quantity", "checked", "rating"})
+			want := map[string]any{"checked": false, "rating": float64(4)}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("Compact() = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestEncode_SizeBoundary(t *testing.T) {
+	atLimit := strings.Repeat("a", MaxBytes-2)
+	got, err := Encode(atLimit)
+	if err != nil {
+		t.Fatalf("at limit: %v", err)
+	}
+	if len(got) != MaxBytes {
+		t.Fatalf("len = %d, want %d", len(got), MaxBytes)
+	}
+	_, err = Encode(atLimit + "a")
+	var tooLarge *TooLargeError
+	if !errors.As(err, &tooLarge) || tooLarge.Size != MaxBytes+1 {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestCompact_TruncatesAtRuneLimit(t *testing.T) {
+	exact := strings.Repeat("é", 160)
+	got := Compact(map[string]any{"text": exact}, []string{"text"})
+	if got["text"] != exact {
+		t.Errorf("160 runes changed: %v", got["text"])
+	}
+	got = Compact(map[string]any{"text": exact + "é"}, []string{"text"})
+	if got["text"] != exact+"…" {
+		t.Errorf("161 runes = %v", got["text"])
 	}
 }
