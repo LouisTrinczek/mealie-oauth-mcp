@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -435,14 +436,16 @@ func TestCall_ReturnsRawJSON(t *testing.T) {
 
 func TestCall_EmptyBodyIsNil(t *testing.T) {
 	for _, status := range []int{http.StatusNoContent, http.StatusOK} {
-		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(status)
-		}))
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
 
-		got, err := c.Call(context.Background(), secret.Secret{}, http.MethodDelete, "/api/x", nil, nil)
-		if err != nil || got != nil {
-			t.Errorf("status %d: Call = %q, %v; want nil, nil", status, got, err)
-		}
+			got, err := c.Call(context.Background(), secret.Secret{}, http.MethodDelete, "/api/x", nil, nil)
+			if err != nil || got != nil {
+				t.Errorf("status %d: Call = %q, %v; want nil, nil", status, got, err)
+			}
+		})
 	}
 }
 
@@ -471,7 +474,10 @@ func TestCall_ErrorsKeepClassification(t *testing.T) {
 
 func TestCall_SendsQueryAndBody(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading body: %v", err)
+		}
 		if r.Method != http.MethodPatch || r.URL.Path != "/api/x" || r.URL.Query().Get("perPage") != "20" || string(raw) != `{"name":"x"}` {
 			t.Errorf("got %s %s %q", r.Method, r.URL, raw)
 		}

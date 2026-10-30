@@ -3,12 +3,13 @@ package mealie
 import (
 	"net/url"
 	"strings"
+	"unicode"
 )
 
 const (
 	firstPrintableRune = 0x20
 	deleteRune         = 0x7f
-	forbiddenRunes     = `/\%?#`
+	forbiddenRunes     = `/\%?#;`
 )
 
 type SegmentError struct {
@@ -20,7 +21,7 @@ func (e *SegmentError) Error() string {
 }
 
 func CheckSegment(s string) error {
-	if s == "" || s == "." || s == ".." || strings.ContainsFunc(s, isForbiddenRune) {
+	if strings.Trim(s, ".") == "" || strings.TrimFunc(s, unicode.IsSpace) == "" || strings.ContainsFunc(s, isForbiddenRune) {
 		return &SegmentError{Value: s}
 	}
 	return nil
