@@ -14,6 +14,7 @@ import (
 const (
 	requestIDHeader     = "X-Request-ID"
 	generatedIDByteSize = 16
+	unmatchedRoute      = "unmatched"
 )
 
 var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{8,64}$`)
@@ -54,12 +55,12 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			recorder := NewStatusRecorder(w)
 			next.ServeHTTP(recorder, r)
 			logger.LogAttrs(r.Context(), slog.LevelInfo, "request",
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
-				slog.Int("status", recorder.status),
+				slog.Int("status", recorder.Status),
 				slog.Duration("duration", time.Since(start)),
 				slog.String("request_id", RequestIDFrom(r.Context())),
 			)
@@ -67,16 +68,27 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-type statusRecorder struct {
+type StatusRecorder struct {
 	http.ResponseWriter
-	status int
+	Status int
 }
 
-func (s *statusRecorder) WriteHeader(status int) {
-	s.status = status
+func NewStatusRecorder(w http.ResponseWriter) *StatusRecorder {
+	return &StatusRecorder{ResponseWriter: w, Status: http.StatusOK}
+}
+
+func (s *StatusRecorder) WriteHeader(status int) {
+	s.Status = status
 	s.ResponseWriter.WriteHeader(status)
 }
 
-func (s *statusRecorder) Unwrap() http.ResponseWriter {
+func (s *StatusRecorder) Unwrap() http.ResponseWriter {
 	return s.ResponseWriter
+}
+
+func Route(r *http.Request) string {
+	if r.Pattern == "" {
+		return unmatchedRoute
+	}
+	return r.Pattern
 }

@@ -134,3 +134,18 @@ func TestAccessLog_ExposesUnderlyingWriter(t *testing.T) {
 		t.Fatal("flush did not reach the underlying writer")
 	}
 }
+
+func TestRoute(t *testing.T) {
+	unrouted := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x/abc123", nil)
+	if got := Route(unrouted); got != "unmatched" {
+		t.Fatalf("unrouted = %q, want unmatched", got)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(http.ResponseWriter, *http.Request) {})
+	routed := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
+	mux.ServeHTTP(httptest.NewRecorder(), routed)
+	if got := Route(routed); got != "GET /healthz" {
+		t.Fatalf("routed = %q, want GET /healthz", got)
+	}
+}
