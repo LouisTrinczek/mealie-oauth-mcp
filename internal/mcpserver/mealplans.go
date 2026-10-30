@@ -86,11 +86,17 @@ func addMealplansWrite(srv *mcp.Server, d Deps) error {
 	}, map[string][]any{"entryType": entryTypes})
 }
 
-func checkDate(field, value string) error {
-	if _, err := time.Parse(dateLayout, value); err != nil {
-		return toolFailure(field + " must be YYYY-MM-DD.")
+func parseDate(field, value string) (time.Time, error) {
+	date, err := time.Parse(dateLayout, value)
+	if err != nil {
+		return time.Time{}, toolFailure(field + " must be YYYY-MM-DD.")
 	}
-	return nil
+	return date, nil
+}
+
+func checkDate(field, value string) error {
+	_, err := parseDate(field, value)
+	return err
 }
 
 func listRange(in mealplansReadInput, now time.Time) (string, string, error) {
@@ -98,16 +104,20 @@ func listRange(in mealplansReadInput, now time.Time) (string, string, error) {
 	if start == "" {
 		start = now.Format(dateLayout)
 	}
-	first, err := time.Parse(dateLayout, start)
+	first, err := parseDate("start", start)
 	if err != nil {
-		return "", "", toolFailure("start must be YYYY-MM-DD.")
+		return "", "", err
 	}
 	end := in.End
 	if end == "" {
 		return start, first.AddDate(0, 0, listedDays-1).Format(dateLayout), nil
 	}
-	if err := checkDate("end", end); err != nil {
+	last, err := parseDate("end", end)
+	if err != nil {
 		return "", "", err
+	}
+	if last.Before(first) {
+		return "", "", toolFailure("end must not be before start.")
 	}
 	return start, end, nil
 }
@@ -152,12 +162,12 @@ func orDefaultEntryType(entryType string) string {
 	return entryType
 }
 
-func compactEntry(raw json.RawMessage) (any, error) {
-	var entry map[string]any
-	if err := json.Unmarshal(raw, &entry); err != nil {
-		return nil, fmt.Errorf("decoding the meal plan entry: %w", err)
+func writtenEntry(raw json.RawMessage) any {
+	written := compactWrite(raw, mealplanFields)
+	if entry, isObject := written.(map[string]any); isObject {
+		return withStringID(entry)
 	}
-	return withStringID(view.Compact(entry, mealplanFields)), nil
+	return written
 }
 
 func withStringID(entry map[string]any) map[string]any {
@@ -216,7 +226,7 @@ func postMealplan(ctx context.Context, s *session, body map[string]any) (any, er
 	if err != nil {
 		return nil, err
 	}
-	return compactEntry(raw)
+	return writtenEntry(raw), nil
 }
 
 func createMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
@@ -285,7 +295,7 @@ func randomMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 	if err != nil {
 		return nil, err
 	}
-	return compactEntry(raw)
+	return writtenEntry(raw), nil
 }
 
 func updateMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
@@ -293,7 +303,7 @@ func updateMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 	if err != nil {
 		return nil, err
 	}
-	return compactEntry(raw)
+	return writtenEntry(raw), nil
 }
 
 func deleteMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
@@ -321,9 +331,5 @@ func createMealplanRule(ctx context.Context, s *session, in mealplansWriteInput)
 	if err != nil {
 		return nil, err
 	}
-	var rule map[string]any
-	if err := json.Unmarshal(raw, &rule); err != nil {
-		return nil, fmt.Errorf("decoding the meal plan rule: %w", err)
-	}
-	return view.Compact(rule, mealplanRuleFields), nil
+	return compactWrite(raw, mealplanRuleFields), nil
 }

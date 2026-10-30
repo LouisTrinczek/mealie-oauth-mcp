@@ -83,6 +83,17 @@ func TestMealplansRead_ListRejectsBadDates(t *testing.T) {
 	}
 }
 
+func TestMealplansRead_EndBeforeStart(t *testing.T) {
+	api := newFakeMealie(t)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealplans_read", map[string]any{"action": "list", "start": "2026-11-10", "end": "2026-11-09"})
+	requireToolError(t, res, "end must not be before start.")
+	if seen := api.requests(); len(seen) != 0 {
+		t.Errorf("requests = %+v, want none", seen)
+	}
+}
+
 func TestMealplansRead_Today(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, mealplansEndpoint+"/today", http.StatusOK, `[`+entryBodyJSON+`]`)
@@ -229,6 +240,19 @@ func TestMealplansWrite_BulkCreateReportsProgress(t *testing.T) {
 	}
 }
 
+func TestMealplansWrite_BulkUnreadableReplyCountsAsCreated(t *testing.T) {
+	api := newFakeMealie(t)
+	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, `[]`)
+	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusInternalServerError, `{"detail":"boom"}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{
+		map[string]any{"date": "2026-10-31", "title": "A"},
+		map[string]any{"date": "2026-11-01", "title": "B"},
+	}})
+	requireToolError(t, res, "Created 1 of 2 entries; entry 2 (2026-11-01) failed: "+string(errWriteUnconfirmed))
+}
+
 func TestMealplansWrite_BulkCreateValidatesEveryEntryFirst(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -295,21 +319,24 @@ func TestMealplansWrite_BulkCreateStopsOnMealieFailure(t *testing.T) {
 }
 
 func TestMealplansWrite_BulkCreateReturnsItems(t *testing.T) {
+	const stewEntryBody = `{"id":6,"date":"2026-11-01","entryType":"dinner","recipe":{"id":"r-2","slug":"stew","name":"Stew"}}`
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
-	api.on(http.MethodPost, mealplansEndpoint, http.StatusCreated, entryBodyJSON)
+	api.on(http.MethodGet, "/api/recipes/stew", http.StatusOK, `{"id":"r-2","slug":"stew"}`)
+	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, entryBodyJSON)
+	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, stewEntryBody)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{
 		map[string]any{"date": "2026-10-31", "slug": "soup", "entryType": "lunch"},
-		map[string]any{"date": "2026-11-01", "title": "B"},
+		map[string]any{"date": "2026-11-01", "slug": "stew"},
 	}})
 	if res.IsError {
 		t.Fatalf("tool error: %s", resultText(t, res))
 	}
 	assertGolden(t, "mealplans_bulk_create", resultText(t, res))
 	seen := api.requests()
-	if len(seen) != 3 || seen[1].Body != `{"date":"2026-10-31","entryType":"lunch","recipeId":"r-1"}` || seen[2].Body != `{"date":"2026-11-01","entryType":"dinner","title":"B"}` {
+	if len(seen) != 4 || seen[2].Body != `{"date":"2026-10-31","entryType":"lunch","recipeId":"r-1"}` || seen[3].Body != `{"date":"2026-11-01","entryType":"dinner","recipeId":"r-2"}` {
 		t.Errorf("requests = %+v, want the entries posted in order", seen)
 	}
 }
@@ -509,9 +536,9 @@ func TestMealplansWrite_IDValidation(t *testing.T) {
 		{"rule_update needs fields", map[string]any{"action": "rule_update", "id": "u-1"}, `Action "rule_update" needs fields.`},
 		{"delete needs id", map[string]any{"action": "delete"}, `Action "delete" needs id.`},
 		{"rule_delete needs id", map[string]any{"action": "rule_delete"}, `Action "rule_delete" needs id.`},
-		{"update rejects traversal", map[string]any{"action": "update", "id": "../x", "fields": map[string]any{"a": 1}}, ""},
-		{"delete rejects traversal", map[string]any{"action": "delete", "id": "a/b"}, ""},
-		{"rule_delete rejects traversal", map[string]any{"action": "rule_delete", "id": "%2e%2e"}, ""},
+		{"update rejects traversal", map[string]any{"action": "update", "id": "../x", "fields": map[string]any{"a": 1}}, `"../x" is not a valid slug or id.`},
+		{"delete rejects traversal", map[string]any{"action": "delete", "id": "a/b"}, `"a/b" is not a valid slug or id.`},
+		{"rule_delete rejects traversal", map[string]any{"action": "rule_delete", "id": "%2e%2e"}, `"%2e%2e" is not a valid slug or id.`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -520,7 +547,7 @@ func TestMealplansWrite_IDValidation(t *testing.T) {
 
 			res := callTool(t, cs, "mealplans_write", tt.args)
 			got := resultText(t, res)
-			if !res.IsError || got == "" || (tt.want != "" && got != tt.want) {
+			if !res.IsError || got != tt.want {
 				t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
 			}
 			if seen := api.requests(); len(seen) != 0 {
@@ -530,7 +557,7 @@ func TestMealplansWrite_IDValidation(t *testing.T) {
 	}
 }
 
-func TestMealplansWrite_MalformedMealieBodies(t *testing.T) {
+func TestMealplansWrite_UnreadableMealieBodiesStillSucceed(t *testing.T) {
 	tests := []struct {
 		name  string
 		args  map[string]any
@@ -546,8 +573,9 @@ func TestMealplansWrite_MalformedMealieBodies(t *testing.T) {
 			api.on(http.MethodPost, tt.route, http.StatusOK, `[]`)
 			cs := connectTools(t, api)
 
-			if res := callTool(t, cs, "mealplans_write", tt.args); !res.IsError {
-				t.Error("IsError = false, want a decoding error")
+			res := callTool(t, cs, "mealplans_write", tt.args)
+			if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+				t.Errorf("result = %s (error %v), want {\"ok\":true}", got, res.IsError)
 			}
 		})
 	}
