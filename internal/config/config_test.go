@@ -28,6 +28,10 @@ func validEnv() map[string]string {
 	}
 }
 
+func ptr(value string) *string {
+	return &value
+}
+
 func loadFrom(env map[string]string, files map[string][]byte) (*Config, error) {
 	getenv := func(name string) (string, bool) {
 		value, ok := env[name]
@@ -379,22 +383,21 @@ func TestLoad_TracingEnabled(t *testing.T) {
 	}
 }
 
-func ptr(value string) *string {
-	return &value
-}
-
 func TestLoad_ObservabilityErrors(t *testing.T) {
 	tests := []struct {
 		name      string
 		variable  string
 		value     string
 		wantError string
+		secret    string
 	}{
 		{name: "metrics addr without host or colon", variable: "METRICS_ADDR", value: "9090", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
 		{name: "metrics addr without port", variable: "METRICS_ADDR", value: "127.0.0.1:", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
+		{name: "metrics addr non-numeric port", variable: "METRICS_ADDR", value: "127.0.0.1:abc", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
+		{name: "metrics addr port out of range", variable: "METRICS_ADDR", value: "127.0.0.1:99999", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
 		{name: "otlp endpoint without scheme", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "otel:4318", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL"},
-		{name: "otlp endpoint wrong scheme", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "ftp://user:" + urlPassword + "@otel", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL"},
-		{name: "otlp endpoint unparsable", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://user:" + urlPassword + "@otel:bad", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL"},
+		{name: "otlp endpoint wrong scheme", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "ftp://user:" + urlPassword + "@otel", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL", secret: urlPassword},
+		{name: "otlp endpoint unparsable", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://user:" + urlPassword + "@otel:bad", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL", secret: urlPassword},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -405,8 +408,8 @@ func TestLoad_ObservabilityErrors(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.wantError) {
 				t.Errorf("error %q does not contain %q", err, tt.wantError)
 			}
-			if strings.Contains(err.Error(), urlPassword) || (tt.variable == "OTEL_EXPORTER_OTLP_ENDPOINT" && strings.Contains(err.Error(), tt.value)) {
-				t.Errorf("error %q echoes the raw value", err)
+			if tt.secret != "" && strings.Contains(err.Error(), tt.secret) {
+				t.Errorf("error %q leaks %q", err, tt.secret)
 			}
 		})
 	}

@@ -217,7 +217,9 @@ func (e environment) metricsAddr() (string, error) {
 	if addr == "" {
 		return "", nil
 	}
-	if _, port, err := net.SplitHostPort(addr); err != nil || port == "" {
+	_, port, err := net.SplitHostPort(addr)
+	number, convErr := strconv.Atoi(port)
+	if err != nil || convErr != nil || number < 1 || number > 65535 {
 		return "", errors.New("METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics")
 	}
 	return addr, nil
