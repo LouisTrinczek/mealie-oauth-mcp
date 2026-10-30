@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -25,6 +26,7 @@ const errRequestFailed toolFailure = "Mealie request failed. Try again."
 type session struct {
 	tokens TokenSource
 	mealie MealieClient
+	clock  func() time.Time
 	info   *auth.TokenInfo
 	token  secret.Secret
 }
@@ -35,7 +37,7 @@ func openSession(ctx context.Context, d Deps, req *mcp.CallToolRequest) (*sessio
 	if err != nil {
 		return nil, tokenFailure(err)
 	}
-	return &session{tokens: d.Tokens, mealie: d.Mealie, info: info, token: tok}, nil
+	return &session{tokens: d.Tokens, mealie: d.Mealie, clock: d.Clock, info: info, token: tok}, nil
 }
 
 func (s *session) call(ctx context.Context, method, path string, q url.Values, body any) (json.RawMessage, error) {

@@ -56,6 +56,7 @@ func New(d Deps) (*mcp.Server, error) {
 	return srv, errors.Join(
 		addAccountRead(srv, d),
 		addRecipesRead(srv, d),
+		addRecipesWrite(srv, d),
 	)
 }
 

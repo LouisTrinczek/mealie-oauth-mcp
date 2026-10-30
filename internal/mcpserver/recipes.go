@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -18,6 +19,8 @@ const (
 	recipesPath        = "/api/recipes"
 	defaultSuggestions = 10
 	maxSuggestions     = 50
+	tagsPath           = "/api/organizers/tags/slug"
+	categoriesPath     = "/api/organizers/categories/slug"
 )
 
 var recipeFields = []string{"id", "slug", "name", "description", "totalTime", "rating", "recipeCategory", "tags"}
@@ -51,6 +54,258 @@ func addRecipesRead(srv *mcp.Server, d Deps) error {
 		{name: "get", help: "Read one recipe. Needs slug. Optional: full.", run: getRecipe},
 		{name: "suggest", help: "Suggest recipes you can make with the given foods and tools. Optional: foods, tools, limit.", run: suggestRecipes},
 	}, map[string][]any{"orderDirection": {"asc", "desc"}})
+}
+
+type recipesWriteInput struct {
+	actionField
+	Slug        string         `json:"slug,omitempty" jsonschema:"Recipe slug or id."`
+	Name        string         `json:"name,omitempty" jsonschema:"create: recipe name. duplicate: name of the copy."`
+	URL         string         `json:"url,omitempty" jsonschema:"import_url, set_image_url, add_asset_url: the URL to fetch."`
+	Fields      map[string]any `json:"fields,omitempty" jsonschema:"update: recipe fields to change, using Mealie's names, e.g. description, recipeIngredient, recipeInstructions."`
+	IncludeTags bool           `json:"includeTags,omitempty" jsonschema:"import_url: also import the page's tags."`
+	Timestamp   string         `json:"timestamp,omitempty" jsonschema:"mark_made: when it was made, RFC 3339 (default now)."`
+	ExpiresAt   string         `json:"expiresAt,omitempty" jsonschema:"share: when the link expires, RFC 3339."`
+	Slugs       []string       `json:"slugs,omitempty" jsonschema:"bulk_tag, bulk_categorize, bulk_delete: recipe slugs."`
+	Categories  []string       `json:"categories,omitempty" jsonschema:"bulk_categorize: category slugs."`
+	Tags        []string       `json:"tags,omitempty" jsonschema:"bulk_tag: tag slugs."`
+}
+
+func addRecipesWrite(srv *mcp.Server, d Deps) error {
+	return addActionTool(srv, d, toolSpec{
+		name:      "recipes_write",
+		summary:   "Create, import, change, and delete recipes. Use recipes_read first to find slugs.",
+		openWorld: true,
+	}, []action[recipesWriteInput]{
+		{name: "create", help: "Create an empty recipe. Needs name. Returns its slug.", run: createRecipe},
+		{name: "import_url", help: "Import a recipe from a web page. Needs url. Optional: includeTags. Returns its slug.", run: importRecipe},
+		{name: "update", help: "Change recipe fields. Needs slug, fields.", run: updateRecipe},
+		{name: "duplicate", help: "Copy a recipe. Needs slug. Optional: name.", run: duplicateRecipe},
+		{name: "delete", help: "Delete a recipe. Needs slug.", run: deleteRecipe},
+		{name: "mark_made", help: "Record that a recipe was made. Needs slug. Optional: timestamp.", run: markMadeAction},
+		{name: "set_image_url", help: "Set a recipe image from a URL. Needs slug, url.", run: setRecipeImage},
+		{name: "add_asset_url", help: "Attach a file from a URL to a recipe. Needs slug, url.", run: addRecipeAsset},
+		{name: "share", help: "Create a share link. Needs slug. Optional: expiresAt.", run: shareRecipe},
+		{name: "bulk_tag", help: "Add tags to many recipes. Needs slugs, tags.", run: bulkTag},
+		{name: "bulk_categorize", help: "Add categories to many recipes. Needs slugs, categories.", run: bulkCategorize},
+		{name: "bulk_delete", help: "Delete many recipes. Needs slugs.", run: bulkDelete},
+	}, nil)
+}
+
+func callRecipe(ctx context.Context, s *session, method, slug, suffix string, body any) (json.RawMessage, error) {
+	path, err := mealie.PathOf(recipesPath, slug)
+	if err != nil {
+		return nil, err
+	}
+	return s.call(ctx, method, path+suffix, nil, body)
+}
+
+func newRecipeSlug(raw json.RawMessage) (any, error) {
+	var slug string
+	if err := json.Unmarshal(raw, &slug); err != nil {
+		return nil, fmt.Errorf("decoding the new recipe slug: %w", err)
+	}
+	return map[string]string{"slug": slug}, nil
+}
+
+func createRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := need("create", "name", in.Name); err != nil {
+		return nil, err
+	}
+	raw, err := s.call(ctx, http.MethodPost, recipesPath, nil, map[string]string{"name": in.Name})
+	if err != nil {
+		return nil, err
+	}
+	return newRecipeSlug(raw)
+}
+
+func importRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := need("import_url", "url", in.URL); err != nil {
+		return nil, err
+	}
+	raw, err := s.call(ctx, http.MethodPost, recipesPath+"/create/url", nil, map[string]any{"url": in.URL, "includeTags": in.IncludeTags})
+	if err != nil {
+		return nil, err
+	}
+	return newRecipeSlug(raw)
+}
+
+func updateRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := need("update", "slug", in.Slug); err != nil {
+		return nil, err
+	}
+	if len(in.Fields) == 0 {
+		return nil, need("update", "fields", "")
+	}
+	raw, err := callRecipe(ctx, s, http.MethodPatch, in.Slug, "", in.Fields)
+	if err != nil {
+		return nil, err
+	}
+	return ok(raw), nil
+}
+
+func duplicateRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := need("duplicate", "slug", in.Slug); err != nil {
+		return nil, err
+	}
+	body := map[string]string{}
+	if in.Name != "" {
+		body["name"] = in.Name
+	}
+	raw, err := callRecipe(ctx, s, http.MethodPost, in.Slug, "/duplicate", body)
+	if err != nil {
+		return nil, err
+	}
+	var recipe map[string]any
+	if err := json.Unmarshal(raw, &recipe); err != nil {
+		return nil, fmt.Errorf("decoding the duplicated recipe: %w", err)
+	}
+	return view.Compact(recipe, recipeFields), nil
+}
+
+func deleteRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := need("delete", "slug", in.Slug); err != nil {
+		return nil, err
+	}
+	raw, err := callRecipe(ctx, s, http.MethodDelete, in.Slug, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	return ok(raw), nil
+}
+
+func markMade(ctx context.Context, s *session, slug, timestamp string) error {
+	if timestamp == "" {
+		timestamp = s.clock().UTC().Format(time.RFC3339)
+	}
+	_, err := callRecipe(ctx, s, http.MethodPatch, slug, "/last-made", map[string]string{"timestamp": timestamp})
+	return err
+}
+
+func markMadeAction(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := need("mark_made", "slug", in.Slug); err != nil {
+		return nil, err
+	}
+	if err := markMade(ctx, s, in.Slug, in.Timestamp); err != nil {
+		return nil, err
+	}
+	return ok(nil), nil
+}
+
+func postRecipeURL(ctx context.Context, s *session, action, suffix string, in recipesWriteInput) (any, error) {
+	if err := need(action, "slug", in.Slug); err != nil {
+		return nil, err
+	}
+	if err := need(action, "url", in.URL); err != nil {
+		return nil, err
+	}
+	raw, err := callRecipe(ctx, s, http.MethodPost, in.Slug, suffix, map[string]string{"url": in.URL})
+	if err != nil {
+		return nil, err
+	}
+	return ok(raw), nil
+}
+
+func setRecipeImage(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	return postRecipeURL(ctx, s, "set_image_url", "/image", in)
+}
+
+func addRecipeAsset(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	return postRecipeURL(ctx, s, "add_asset_url", "/assets/url", in)
+}
+
+func shareRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := need("share", "slug", in.Slug); err != nil {
+		return nil, err
+	}
+	id, err := recipeID(ctx, s, in.Slug)
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]string{"recipeId": id}
+	if in.ExpiresAt != "" {
+		body["expiresAt"] = in.ExpiresAt
+	}
+	raw, err := s.call(ctx, http.MethodPost, "/api/shared/recipes", nil, body)
+	if err != nil {
+		return nil, err
+	}
+	var shared map[string]any
+	if err := json.Unmarshal(raw, &shared); err != nil {
+		return nil, fmt.Errorf("decoding the share link: %w", err)
+	}
+	return view.Compact(shared, []string{"id", "expiresAt"}), nil
+}
+
+func checkSlugs(slugs []string) error {
+	for _, slug := range slugs {
+		if err := mealie.CheckSegment(slug); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func organizers(ctx context.Context, s *session, prefix string, slugs []string) ([]map[string]any, error) {
+	found := make([]map[string]any, 0, len(slugs))
+	for _, slug := range slugs {
+		path, err := mealie.PathOf(prefix, slug)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := s.call(ctx, http.MethodGet, path, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		var organizer map[string]any
+		if err := json.Unmarshal(raw, &organizer); err != nil {
+			return nil, fmt.Errorf("decoding organizer %q: %w", slug, err)
+		}
+		found = append(found, view.Compact(organizer, []string{"id", "name", "slug"}))
+	}
+	return found, nil
+}
+
+func bulkOrganize(ctx context.Context, s *session, action, field string, slugs, organizerSlugs []string, lookupPrefix, bulkPath, bodyKey string) (any, error) {
+	if len(slugs) == 0 {
+		return nil, need(action, "slugs", "")
+	}
+	if len(organizerSlugs) == 0 {
+		return nil, need(action, field, "")
+	}
+	if err := checkSlugs(slugs); err != nil {
+		return nil, err
+	}
+	resolved, err := organizers(ctx, s, lookupPrefix, organizerSlugs)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := s.call(ctx, http.MethodPost, bulkPath, nil, map[string]any{"recipes": slugs, bodyKey: resolved})
+	if err != nil {
+		return nil, err
+	}
+	return ok(raw), nil
+}
+
+func bulkTag(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	return bulkOrganize(ctx, s, "bulk_tag", "tags", in.Slugs, in.Tags, tagsPath, recipesPath+"/bulk-actions/tag", "tags")
+}
+
+func bulkCategorize(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	return bulkOrganize(ctx, s, "bulk_categorize", "categories", in.Slugs, in.Categories, categoriesPath, recipesPath+"/bulk-actions/categorize", "categories")
+}
+
+func bulkDelete(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if len(in.Slugs) == 0 {
+		return nil, need("bulk_delete", "slugs", "")
+	}
+	if err := checkSlugs(in.Slugs); err != nil {
+		return nil, err
+	}
+	raw, err := s.call(ctx, http.MethodPost, recipesPath+"/bulk-actions/delete", nil, map[string]any{"recipes": in.Slugs})
+	if err != nil {
+		return nil, err
+	}
+	return ok(raw), nil
 }
 
 func recipeID(ctx context.Context, s *session, slug string) (string, error) {
