@@ -24,6 +24,7 @@ const (
 	maxMessageRunes  = 200
 	maxValidationMsg = 3
 	redactedMarker   = "[REDACTED]"
+	redirectMessage  = "Mealie redirected the request. Check that MEALIE_URL points directly at Mealie."
 )
 
 var ErrUnavailable = errors.New("mealie unavailable, try again")
@@ -49,13 +50,17 @@ type Client struct {
 func New(baseURL *url.URL, opts Options) *Client {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultTimeout}
+		httpClient = &http.Client{Timeout: defaultTimeout, CheckRedirect: refuseRedirect}
 	}
 	userAgent := opts.UserAgent
 	if userAgent == "" {
 		userAgent = defaultUserAgent
 	}
 	return &Client{baseURL: baseURL, http: httpClient, userAgent: userAgent, backoff: defaultBackoff}
+}
+
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 type APIError struct {
@@ -187,6 +192,9 @@ func (c *Client) attempt(ctx context.Context, tok secret.Secret, method, target 
 	}
 	if resp.StatusCode >= http.StatusBadRequest {
 		return nil, &APIError{Status: resp.StatusCode, Message: summarize(resp.StatusCode, raw)}
+	}
+	if resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, &APIError{Status: resp.StatusCode, Message: redirectMessage}
 	}
 	return raw, nil
 }

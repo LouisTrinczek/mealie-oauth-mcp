@@ -104,6 +104,7 @@ func TestToolkit_ErrorMapping(t *testing.T) {
 		{http.StatusUnprocessableEntity, "Mealie rejected the request (422): msg. Fix the arguments and try again."},
 		{http.StatusConflict, "Mealie rejected the request (409): msg. Fix the arguments and try again."},
 		{http.StatusTeapot, "Mealie returned an error (418): msg."},
+		{http.StatusFound, "Mealie redirected the request. Check that MEALIE_URL points directly at Mealie."},
 		{http.StatusUnauthorized, sessionEnded},
 	}
 	for _, tt := range tests {

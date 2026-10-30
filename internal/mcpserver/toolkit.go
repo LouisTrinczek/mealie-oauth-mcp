@@ -75,6 +75,9 @@ func (s *session) failure(ctx context.Context, err error) error {
 }
 
 func apiFailure(err *mealie.APIError) toolFailure {
+	if err.Status < http.StatusBadRequest {
+		return toolFailure(err.Message)
+	}
 	switch err.Status {
 	case http.StatusNotFound:
 		return toolFailure(fmt.Sprintf("Mealie could not find that (404): %s. Check the slug or id; search or list to find it.", err.Message))
