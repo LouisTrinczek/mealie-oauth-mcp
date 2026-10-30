@@ -158,6 +158,41 @@ The first connection opens Mealie's login, then one consent screen.
 
 ChatGPT, Cursor, and VS Code should work but are untested.
 
+## Tools
+
+| Tool | Actions |
+|---|---|
+| `whoami` | none |
+| `account_read` | `household`, `group`, `households` |
+| `recipes_read` | `search`, `get`, `suggest` |
+| `recipes_write` | `create`, `import_url`, `update`, `duplicate`, `delete`, `mark_made`, `set_image_url`, `add_asset_url`, `share`, `bulk_tag`, `bulk_categorize`, `bulk_delete` |
+| `history_read` | `timeline` |
+| `history_write` | `add`, `made_it`, `update`, `delete` |
+| `mealplans_read` | `list`, `today`, `rules` |
+| `mealplans_write` | `create`, `bulk_create`, `random`, `update`, `delete`, `rule_create`, `rule_update`, `rule_delete` |
+| `organizers_read` | `list`, `get`, `empty` |
+| `organizers_write` | `create`, `update`, `delete`, `merge` |
+| `shopping_read` | `lists`, `list` |
+| `shopping_write` | `create_list`, `update_list`, `delete_list`, `add_items`, `update_items`, `delete_items`, `add_recipe`, `remove_recipe` |
+| `ingredients_read` | `list`, `get`, `empty`, `parse` |
+| `ingredients_write` | `create`, `update`, `delete`, `merge` |
+| `feedback_read` | `comments`, `ratings`, `favorites` |
+| `feedback_write` | `comment`, `update_comment`, `delete_comment`, `rate`, `favorite`, `unfavorite` |
+| `mealie_api` | none |
+
+Tools ending in `_read` only read data, so clients can set them to "always
+allow". Tools ending in `_write` can change and delete data.
+
+`mealie_api` calls a Mealie API endpoint as the logged-in user, for everyday
+areas that no grouped tool covers. It blocks admin, auth and API-token,
+user-management (other users), webhook and notification, invitation,
+household and group settings, AI-provider, iCal-feed, recipe-action, export,
+and media endpoints. It is an allowlist, so endpoints added in future Mealie
+releases stay blocked until they are added on purpose.
+
+Tool names, action names, and argument meanings are a public interface.
+Breaking changes need a major version or a deprecation period.
+
 ## Sessions
 
 - A session ends after `SESSION_MAX_AGE` (default 720h, 30 days).
