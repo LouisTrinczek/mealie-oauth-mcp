@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -125,7 +126,7 @@ func listMealplans(ctx context.Context, s *session, in mealplansReadInput) (any,
 	if err != nil {
 		return nil, err
 	}
-	return view.Page(raw, mealplanFields)
+	return entriesWithStringIDs(view.Page(raw, mealplanFields))
 }
 
 func todaysMealplans(ctx context.Context, s *session, _ mealplansReadInput) (any, error) {
@@ -133,7 +134,7 @@ func todaysMealplans(ctx context.Context, s *session, _ mealplansReadInput) (any
 	if err != nil {
 		return nil, err
 	}
-	return view.List(raw, mealplanFields)
+	return entriesWithStringIDs(view.List(raw, mealplanFields))
 }
 
 func listMealplanRules(ctx context.Context, s *session, in mealplansReadInput) (any, error) {
@@ -156,7 +157,27 @@ func compactEntry(raw json.RawMessage) (any, error) {
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return nil, fmt.Errorf("decoding the meal plan entry: %w", err)
 	}
-	return view.Compact(entry, mealplanFields), nil
+	return withStringID(view.Compact(entry, mealplanFields)), nil
+}
+
+func withStringID(entry map[string]any) map[string]any {
+	if id, isNumber := entry["id"].(float64); isNumber {
+		entry["id"] = strconv.FormatFloat(id, 'f', -1, 64)
+	}
+	return entry
+}
+
+func entriesWithStringIDs(entries map[string]any, err error) (any, error) {
+	if err != nil {
+		return nil, err
+	}
+	items, _ := entries["items"].([]any)
+	for _, item := range items {
+		if entry, isObject := item.(map[string]any); isObject {
+			withStringID(entry)
+		}
+	}
+	return entries, nil
 }
 
 func checkEntry(action string, e mealplanEntry) error {
@@ -256,7 +277,11 @@ func randomMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 }
 
 func updateMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	return updateByID(ctx, s, "update", mealplansPath, in.ID, in.Fields)
+	raw, err := updateRaw(ctx, s, "update", mealplansPath, in.ID, in.Fields)
+	if err != nil {
+		return nil, err
+	}
+	return compactEntry(raw)
 }
 
 func deleteMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {

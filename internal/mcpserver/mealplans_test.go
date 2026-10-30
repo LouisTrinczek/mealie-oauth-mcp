@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	entryBodyJSON     = `{"id":"m-1","date":"2026-10-31","entryType":"dinner","title":"","text":"","recipeId":"r-1","recipeScale":1,"groupId":"g-1","userId":"u-1","householdId":"h-1","recipe":{"id":"r-1","slug":"soup","name":"Soup","description":"long","image":"x"}}`
+	entryBodyJSON     = `{"id":5,"date":"2026-10-31","entryType":"dinner","title":"","text":"","recipeId":"r-1","recipeScale":1,"groupId":"g-1","userId":"u-1","householdId":"h-1","recipe":{"id":"r-1","slug":"soup","name":"Soup","description":"long","image":"x"}}`
 	entriesPageBody   = `{"page":1,"per_page":20,"total":1,"total_pages":1,"items":[` + entryBodyJSON + `],"next":null,"previous":null}`
 	ruleBodyJSON      = `{"id":"u-1","day":"monday","entryType":"dinner","queryFilterString":"tags.name CONTAINS ALL [\"quick\"]","groupId":"g-1"}`
 	rulesPageBody     = `{"page":1,"per_page":20,"total":1,"total_pages":1,"items":[` + ruleBodyJSON + `],"next":null,"previous":null}`
@@ -93,6 +93,17 @@ func TestMealplansRead_Today(t *testing.T) {
 		t.Fatalf("tool error: %s", resultText(t, res))
 	}
 	assertGolden(t, "mealplans_today", resultText(t, res))
+}
+
+func TestMealplansRead_TodayRejectsNonList(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, mealplansEndpoint+"/today", http.StatusOK, entryBodyJSON)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealplans_read", map[string]any{"action": "today"})
+	if got := resultText(t, res); !res.IsError || !strings.Contains(got, "decoding list") {
+		t.Errorf("result = %s (error %v), want a decoding list error", got, res.IsError)
+	}
 }
 
 func TestMealplansRead_Rules(t *testing.T) {
@@ -381,27 +392,27 @@ func TestMealplansWrite_RandomFailure(t *testing.T) {
 
 func TestMealplansWrite_UpdateMerges(t *testing.T) {
 	api := newFakeMealie(t)
-	api.on(http.MethodGet, mealplansEndpoint+"/m-1", http.StatusOK, `{"id":"m-1","date":"2026-10-31","entryType":"dinner","futureField":{"a":1}}`)
-	api.on(http.MethodPut, mealplansEndpoint+"/m-1", http.StatusOK, `{"id":"m-1","date":"2026-11-02","entryType":"dinner","futureField":{"a":1}}`)
+	api.on(http.MethodGet, mealplansEndpoint+"/5", http.StatusOK, `{"id":5,"date":"2026-10-31","entryType":"dinner","futureField":{"a":1}}`)
+	api.on(http.MethodPut, mealplansEndpoint+"/5", http.StatusOK, `{"id":5,"date":"2026-11-02","entryType":"dinner","futureField":{"a":1}}`)
 	cs := connectTools(t, api)
 
-	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "update", "id": "m-1", "fields": map[string]any{"date": "2026-11-02"}})
-	want := `{"date":"2026-11-02","entryType":"dinner","futureField":{"a":1},"id":"m-1"}`
+	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "update", "id": "5", "fields": map[string]any{"date": "2026-11-02"}})
+	want := `{"date":"2026-11-02","entryType":"dinner","id":"5"}`
 	if got := resultText(t, res); res.IsError || got != want {
 		t.Errorf("result = %s (error %v), want %s", got, res.IsError, want)
 	}
 	seen := api.requests()
-	if len(seen) != 2 || seen[1].Method != http.MethodPut || seen[1].Body != `{"date":"2026-11-02","entryType":"dinner","futureField":{"a":1},"id":"m-1"}` {
+	if len(seen) != 2 || seen[1].Method != http.MethodPut || seen[1].Body != `{"date":"2026-11-02","entryType":"dinner","futureField":{"a":1},"id":5}` {
 		t.Errorf("requests = %+v, want GET then merged PUT", seen)
 	}
 }
 
 func TestMealplansWrite_DeleteReturnsOKForAnyBody(t *testing.T) {
 	api := newFakeMealie(t)
-	api.on(http.MethodDelete, mealplansEndpoint+"/m-1", http.StatusOK, entryBodyJSON)
+	api.on(http.MethodDelete, mealplansEndpoint+"/5", http.StatusOK, entryBodyJSON)
 	cs := connectTools(t, api)
 
-	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "delete", "id": "m-1"})
+	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "delete", "id": "5"})
 	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
 		t.Errorf("result = %s (error %v), want {\"ok\":true}", got, res.IsError)
 	}
@@ -477,7 +488,7 @@ func TestMealplansWrite_IDValidation(t *testing.T) {
 		want string
 	}{
 		{"update needs id", map[string]any{"action": "update", "fields": map[string]any{"a": 1}}, `Action "update" needs id.`},
-		{"update needs fields", map[string]any{"action": "update", "id": "m-1"}, `Action "update" needs fields.`},
+		{"update needs fields", map[string]any{"action": "update", "id": "5"}, `Action "update" needs fields.`},
 		{"rule_update needs fields", map[string]any{"action": "rule_update", "id": "u-1"}, `Action "rule_update" needs fields.`},
 		{"delete needs id", map[string]any{"action": "delete"}, `Action "delete" needs id.`},
 		{"rule_delete needs id", map[string]any{"action": "rule_delete"}, `Action "rule_delete" needs id.`},
@@ -535,8 +546,8 @@ func TestMealplans_MealieFailuresAreReported(t *testing.T) {
 	}{
 		{"today", "mealplans_read", map[string]any{"action": "today"}, http.MethodGet, mealplansEndpoint + "/today"},
 		{"rules", "mealplans_read", map[string]any{"action": "rules"}, http.MethodGet, mealplansEndpoint + "/rules"},
-		{"update", "mealplans_write", map[string]any{"action": "update", "id": "m-1", "fields": map[string]any{"a": 1}}, http.MethodGet, mealplansEndpoint + "/m-1"},
-		{"delete", "mealplans_write", map[string]any{"action": "delete", "id": "m-1"}, http.MethodDelete, mealplansEndpoint + "/m-1"},
+		{"update", "mealplans_write", map[string]any{"action": "update", "id": "5", "fields": map[string]any{"a": 1}}, http.MethodGet, mealplansEndpoint + "/5"},
+		{"delete", "mealplans_write", map[string]any{"action": "delete", "id": "5"}, http.MethodDelete, mealplansEndpoint + "/5"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
