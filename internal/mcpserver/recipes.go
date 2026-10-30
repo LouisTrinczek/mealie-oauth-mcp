@@ -154,11 +154,7 @@ func duplicateRecipe(ctx context.Context, s *session, in recipesWriteInput) (any
 	if err != nil {
 		return nil, err
 	}
-	var recipe map[string]any
-	if err := json.Unmarshal(raw, &recipe); err != nil {
-		return nil, fmt.Errorf("decoding the duplicated recipe: %w", err)
-	}
-	return view.Compact(recipe, recipeFields), nil
+	return compactWrite(raw, recipeFields), nil
 }
 
 func deleteRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {

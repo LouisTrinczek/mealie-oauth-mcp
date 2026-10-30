@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -59,12 +60,20 @@ func (s *session) call(ctx context.Context, method, path string, q url.Values, b
 func (s *session) self(ctx context.Context) (mealie.User, error) {
 	user, err := s.mealie.Self(ctx, s.token)
 	if err != nil {
-		return mealie.User{}, s.failure(ctx, http.MethodGet, err)
+		return mealie.User{}, s.profileFailure(ctx, err)
 	}
 	if user.ID == "" {
 		return mealie.User{}, errProfileUnreadable
 	}
 	return user, nil
+}
+
+func (s *session) profileFailure(ctx context.Context, err error) error {
+	failure := s.failure(ctx, http.MethodGet, err)
+	if errors.Is(failure, errRequestFailed) {
+		return errProfileUnreadable
+	}
+	return failure
 }
 
 func (s *session) failure(ctx context.Context, method string, err error) error {
@@ -297,10 +306,20 @@ func trimmed(raw json.RawMessage, full bool) (any, error) {
 }
 
 func ok(raw json.RawMessage) any {
-	if trimmedBody, err := view.Trim(raw); err == nil {
-		return trimmedBody
+	trimmedBody, err := view.Trim(raw)
+	if err != nil || emptyResult(trimmedBody) {
+		return map[string]bool{"ok": true}
 	}
-	return map[string]bool{"ok": true}
+	return trimmedBody
+}
+
+func emptyResult(body json.RawMessage) bool {
+	switch string(bytes.TrimSpace(body)) {
+	case "", "null", "{}":
+		return true
+	default:
+		return false
+	}
 }
 
 func updateRaw(ctx context.Context, s *session, action, prefix, id string, fields map[string]any) (json.RawMessage, error) {

@@ -348,13 +348,23 @@ func TestShoppingWrite_UnreadableReadBackIsUnconfirmed(t *testing.T) {
 	requireToolError(t, res, string(errUnreadableWrite))
 }
 
+func TestShoppingWrite_CreateListUnreadableReplyIsOK(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodPost, listsBase, http.StatusCreated, `[1]`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "create_list", "name": "n"})
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %q (error %v), want {\"ok\":true}", got, res.IsError)
+	}
+}
+
 func TestShoppingTools_BadMealieBody(t *testing.T) {
 	tests := []struct {
 		name         string
 		args         map[string]any
 		method, path string
 	}{
-		{"create_list", map[string]any{"action": "create_list", "name": "n"}, http.MethodPost, listsBase},
 		{"update_items", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1"}}}, http.MethodGet, itemsBase + "/i-1"},
 	}
 	for _, tt := range tests {

@@ -144,7 +144,11 @@ func createShoppingList(ctx context.Context, s *session, in shoppingWriteInput) 
 	if err != nil {
 		return nil, err
 	}
-	return listView(raw)
+	created, err := listView(raw)
+	if err != nil {
+		return ok(nil), nil
+	}
+	return created, nil
 }
 
 func updateShoppingList(ctx context.Context, s *session, in shoppingWriteInput) (any, error) {

@@ -214,6 +214,18 @@ func TestMealieAPI_FullEmptyBodyIsOK(t *testing.T) {
 	}
 }
 
+func TestMealieAPI_FullNullBodyIsOK(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodDelete, "/api/comments/abc", http.StatusOK, `null`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealie_api", map[string]any{"method": "DELETE", "path": "/api/comments/abc", "full": true})
+
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %q (error %v), want {\"ok\":true}", got, res.IsError)
+	}
+}
+
 func TestMealieAPI_HostileQueryIsEscaped(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/recipes", http.StatusOK, `{}`)

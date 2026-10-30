@@ -313,7 +313,7 @@ func TestWhoami_MapsOtherErrorsWithoutLeaking(t *testing.T) {
 				profile := &fakeMealie{err: errors.New("dial with Bearer abc.def")}
 				return callWhoami(t, connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile}))
 			},
-			string(errRequestFailed),
+			string(errProfileUnreadable),
 		},
 		{
 			"Forbidden",
@@ -358,6 +358,27 @@ func TestWhoami_EmptyUserIDIsUnreadable(t *testing.T) {
 	cs := connectTools(t, api)
 
 	requireToolError(t, callWhoami(t, cs), string(errProfileUnreadable))
+}
+
+func TestSelf_UndecodableProfileIsUnreadable(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(cs *mcp.ClientSession) *mcp.CallToolResult
+	}{
+		{"whoami", func(cs *mcp.ClientSession) *mcp.CallToolResult { return callWhoami(t, cs) }},
+		{"feedback rate", func(cs *mcp.ClientSession) *mcp.CallToolResult {
+			return callTool(t, cs, "feedback_write", map[string]any{"action": "rate", "slug": "soup", "rating": 3})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := newFakeMealie(t)
+			api.on(http.MethodGet, "/api/users/self", http.StatusOK, `[1]`)
+			cs := connectTools(t, api)
+
+			requireToolError(t, tt.call(cs), string(errProfileUnreadable))
+		})
+	}
 }
 
 func TestWhoami_Annotations(t *testing.T) {

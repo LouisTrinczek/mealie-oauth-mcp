@@ -134,14 +134,15 @@ func TestToolkit_ErrorMapping(t *testing.T) {
 
 func TestSession_MapsClientErrors(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want string
+		name     string
+		err      error
+		want     string
+		wantSelf string
 	}{
-		{"BadSegment", &mealie.SegmentError{Value: "a/b"}, `"a/b" is not a valid slug or id.`},
-		{"Unavailable", mealie.ErrUnavailable, "Mealie is unavailable right now. Try again shortly."},
-		{"BadRequest", &mealie.APIError{Status: http.StatusBadRequest, Message: "msg"}, "Mealie rejected the request (400): msg. Fix the arguments and try again."},
-		{"Other", errors.New("transport failed: Bearer " + testMealieToken), "Mealie request failed."},
+		{"BadSegment", &mealie.SegmentError{Value: "a/b"}, `"a/b" is not a valid slug or id.`, `"a/b" is not a valid slug or id.`},
+		{"Unavailable", mealie.ErrUnavailable, "Mealie is unavailable right now. Try again shortly.", "Mealie is unavailable right now. Try again shortly."},
+		{"BadRequest", &mealie.APIError{Status: http.StatusBadRequest, Message: "msg"}, "Mealie rejected the request (400): msg. Fix the arguments and try again.", "Mealie rejected the request (400): msg. Fix the arguments and try again."},
+		{"Other", errors.New("transport failed: Bearer " + testMealieToken), "Mealie request failed.", "Could not read your Mealie profile. Try again."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -150,8 +151,8 @@ func TestSession_MapsClientErrors(t *testing.T) {
 			if _, err := s.call(t.Context(), http.MethodGet, "/api/x", nil, nil); err == nil || err.Error() != tt.want {
 				t.Errorf("call error = %v, want %q", err, tt.want)
 			}
-			if _, err := s.self(t.Context()); err == nil || err.Error() != tt.want {
-				t.Errorf("self error = %v, want %q", err, tt.want)
+			if _, err := s.self(t.Context()); err == nil || err.Error() != tt.wantSelf {
+				t.Errorf("self error = %v, want %q", err, tt.wantSelf)
 			}
 		})
 	}
@@ -366,6 +367,8 @@ func TestOk(t *testing.T) {
 		{"Empty", nil, map[string]bool{"ok": true}},
 		{"Body", json.RawMessage(`{"id":"1","note":""}`), json.RawMessage(`{"id":"1"}`)},
 		{"NotJSON", json.RawMessage(`done`), map[string]bool{"ok": true}},
+		{"Null", json.RawMessage(`null`), map[string]bool{"ok": true}},
+		{"OnlyNulls", json.RawMessage(`{"x":null}`), map[string]bool{"ok": true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

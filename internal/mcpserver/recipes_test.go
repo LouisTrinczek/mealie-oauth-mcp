@@ -311,12 +311,15 @@ func TestRecipesWrite_DuplicateWithoutNameSendsEmptyObject(t *testing.T) {
 	}
 }
 
-func TestRecipesWrite_DuplicateRejectsUnexpectedShape(t *testing.T) {
+func TestRecipesWrite_DuplicateUnreadableReplyIsOK(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodPost, "/api/recipes/tomato-soup/duplicate", http.StatusCreated, `[]`)
 	cs := connectTools(t, api)
 
-	requireToolError(t, callTool(t, cs, "recipes_write", map[string]any{"action": "duplicate", "slug": "tomato-soup"}), string(errUnreadableWrite))
+	res := callTool(t, cs, "recipes_write", map[string]any{"action": "duplicate", "slug": "tomato-soup"})
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %q (error %v), want {\"ok\":true}", got, res.IsError)
+	}
 }
 
 func TestRecipesWrite_MarkMadeDefaultsToClock(t *testing.T) {
