@@ -307,3 +307,9 @@ func TestCompact_TruncatesAtRuneLimit(t *testing.T) {
 		t.Errorf("161 runes = %v", got["text"])
 	}
 }
+
+func TestTrim_RejectsTrailingData(t *testing.T) {
+	if _, err := Trim(json.RawMessage(`{"a":1} xyz`)); err == nil {
+		t.Error("expected error")
+	}
+}

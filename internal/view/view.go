@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 )
 
 const (
@@ -50,6 +51,9 @@ func Trim(raw json.RawMessage) (json.RawMessage, error) {
 	var value any
 	if err := decoder.Decode(&value); err != nil {
 		return nil, fmt.Errorf("decoding object: %w", err)
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("decoding object: unexpected data after top-level value")
 	}
 	return marshal(trimmed(value))
 }
