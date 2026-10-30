@@ -300,20 +300,55 @@ func TestWhoami_WithoutTokenInfoEndsSession(t *testing.T) {
 	requireToolError(t, callWhoami(t, cs), "Your Mealie session ended. Reconnect this app to log in again.")
 }
 
-func TestWhoami_OtherErrorsAreGeneric(t *testing.T) {
-	profile := &fakeMealie{err: errors.New("dial with Bearer eyJhbGciOi.leak.sig")}
-	cs := connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile})
-
-	res := callWhoami(t, cs)
-	requireToolError(t, res, string(errRequestFailed))
-	raw, err := json.Marshal(res)
-	if err != nil {
-		t.Fatalf("marshal result: %v", err)
+func TestWhoami_MapsOtherErrorsWithoutLeaking(t *testing.T) {
+	const leakedDetail = `{"detail":"bad Bearer abc.def"}`
+	tests := []struct {
+		name string
+		run  func(t *testing.T) *mcp.CallToolResult
+		want string
+	}{
+		{
+			"PlainError",
+			func(t *testing.T) *mcp.CallToolResult {
+				profile := &fakeMealie{err: errors.New("dial with Bearer abc.def")}
+				return callWhoami(t, connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile}))
+			},
+			string(errRequestFailed),
+		},
+		{
+			"Forbidden",
+			func(t *testing.T) *mcp.CallToolResult {
+				api := newFakeMealie(t)
+				api.on(http.MethodGet, "/api/users/self", http.StatusForbidden, leakedDetail)
+				return callWhoami(t, connectTools(t, api))
+			},
+			"Your Mealie user is not allowed to do this (403): bad [REDACTED].",
+		},
+		{
+			"NotFound",
+			func(t *testing.T) *mcp.CallToolResult {
+				api := newFakeMealie(t)
+				api.on(http.MethodGet, "/api/users/self", http.StatusNotFound, leakedDetail)
+				return callWhoami(t, connectTools(t, api))
+			},
+			"Mealie could not find that (404): bad [REDACTED]. Check the slug or id; search or list to find it.",
+		},
 	}
-	for _, leak := range []string{"eyJ", "Bearer", testMealieToken} {
-		if strings.Contains(string(raw), leak) {
-			t.Errorf("tool result leaks %q", leak)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := tt.run(t)
+
+			requireToolError(t, res, tt.want)
+			raw, err := json.Marshal(res)
+			if err != nil {
+				t.Fatalf("marshal result: %v", err)
+			}
+			for _, leak := range []string{"abc.def", "Bearer", testMealieToken} {
+				if strings.Contains(string(raw), leak) {
+					t.Errorf("tool result leaks %q", leak)
+				}
+			}
+		})
 	}
 }
 
