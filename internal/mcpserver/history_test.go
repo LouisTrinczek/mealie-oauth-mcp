@@ -63,6 +63,18 @@ func TestHistoryWrite_AddDefaultsEventType(t *testing.T) {
 	}
 }
 
+func TestHistoryWrite_AddUnreadableEventIsSuccess(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
+	api.on(http.MethodPost, "/api/recipes/timeline/events", http.StatusCreated, `[]`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "history_write", map[string]any{"action": "add", "slug": "soup", "subject": "x"})
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %s (error %v), want {\"ok\":true}", got, res.IsError)
+	}
+}
+
 func TestHistoryWrite_AddSendsGivenFields(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
@@ -160,9 +172,7 @@ func TestHistoryWrite_MadeItFailures(t *testing.T) {
 		cs := connectTools(t, api)
 
 		res := callTool(t, cs, "history_write", map[string]any{"action": "made_it", "slug": "soup"})
-		if !res.IsError {
-			t.Errorf("result = %s, want a tool error", resultText(t, res))
-		}
+		requireToolError(t, res, "Mealie rejected the request (422): bad. Fix the arguments and try again.")
 		for _, r := range api.requests() {
 			if r.Method == http.MethodPost && r.Path == "/api/recipes/timeline/events" {
 				t.Errorf("requests = %+v, want no timeline POST", api.requests())
