@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -161,15 +160,7 @@ func createOrganizer(ctx context.Context, s *session, in organizersWriteInput) (
 	if in.QueryFilter != "" {
 		body["queryFilterString"] = in.QueryFilter
 	}
-	raw, err := s.call(ctx, http.MethodPost, kind.base, nil, body)
-	if err != nil {
-		return nil, err
-	}
-	var created map[string]any
-	if err := json.Unmarshal(raw, &created); err != nil {
-		return nil, fmt.Errorf("decoding the created %s: %w", in.Kind, err)
-	}
-	return view.Compact(created, kind.fields), nil
+	return createCompact(ctx, s, in.Kind, kind.base, body, kind.fields)
 }
 
 func updateOrganizer(ctx context.Context, s *session, in organizersWriteInput) (any, error) {

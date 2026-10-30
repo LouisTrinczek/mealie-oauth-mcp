@@ -281,3 +281,15 @@ func setIfNotEmpty(query url.Values, key, value string) {
 		query.Set(key, value)
 	}
 }
+
+func createCompact(ctx context.Context, s *session, kindName, base string, body any, fields []string) (any, error) {
+	raw, err := s.call(ctx, http.MethodPost, base, nil, body)
+	if err != nil {
+		return nil, err
+	}
+	var created map[string]any
+	if err := json.Unmarshal(raw, &created); err != nil {
+		return nil, fmt.Errorf("decoding the created %s: %w", kindName, err)
+	}
+	return view.Compact(created, fields), nil
+}
