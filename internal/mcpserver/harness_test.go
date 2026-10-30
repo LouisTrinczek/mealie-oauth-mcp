@@ -56,10 +56,10 @@ func (a *fakeAPI) on(method, path string, status int, body string) {
 	a.routes[method+" "+path] = cannedResponse{status: status, body: body}
 }
 
-func (a *fakeAPI) onceNext(method, path string, status int, body string) {
+func (a *fakeAPI) onceNextMealplanPost(status int, body string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	key := method + " " + path
+	key := http.MethodPost + " " + mealplansEndpoint
 	a.queued[key] = append(a.queued[key], cannedResponse{status: status, body: body})
 }
 

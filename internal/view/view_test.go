@@ -280,6 +280,14 @@ func TestCompact_DropsZeroNumbers(t *testing.T) {
 	}
 }
 
+func TestCompact_KeepsNonZeroJSONNumber(t *testing.T) {
+	got := Compact(map[string]any{"quantity": json.Number("2")}, []string{"quantity"})
+	want := map[string]any{"quantity": json.Number("2")}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Compact() = %v, want %v", got, want)
+	}
+}
+
 func TestEncode_SizeBoundary(t *testing.T) {
 	atLimit := strings.Repeat("a", MaxBytes-2)
 	got, err := Encode(atLimit)

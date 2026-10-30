@@ -222,8 +222,8 @@ func TestMealplansWrite_CreateFailsWhenRecipeLookupFails(t *testing.T) {
 
 func TestMealplansWrite_BulkCreateReportsProgress(t *testing.T) {
 	api := newFakeMealie(t)
-	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, entryBodyJSON)
-	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusUnprocessableEntity, `{"detail":"bad"}`)
+	api.onceNextMealplanPost(http.StatusCreated, entryBodyJSON)
+	api.onceNextMealplanPost(http.StatusUnprocessableEntity, `{"detail":"bad"}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{
@@ -242,8 +242,8 @@ func TestMealplansWrite_BulkCreateReportsProgress(t *testing.T) {
 
 func TestMealplansWrite_BulkUnreadableReplyCountsAsCreated(t *testing.T) {
 	api := newFakeMealie(t)
-	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, `[]`)
-	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusInternalServerError, `{"detail":"boom"}`)
+	api.onceNextMealplanPost(http.StatusCreated, `[]`)
+	api.onceNextMealplanPost(http.StatusInternalServerError, `{"detail":"boom"}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{
@@ -323,8 +323,8 @@ func TestMealplansWrite_BulkCreateReturnsItems(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
 	api.on(http.MethodGet, "/api/recipes/stew", http.StatusOK, `{"id":"r-2","slug":"stew"}`)
-	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, entryBodyJSON)
-	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, stewEntryBody)
+	api.onceNextMealplanPost(http.StatusCreated, entryBodyJSON)
+	api.onceNextMealplanPost(http.StatusCreated, stewEntryBody)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{

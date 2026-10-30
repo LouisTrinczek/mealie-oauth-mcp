@@ -477,6 +477,18 @@ func TestShoppingWrite_RecipeBadListIDMakesNoRequest(t *testing.T) {
 	}
 }
 
+func TestShoppingWrite_RemoveRecipeRejectsUnsafeRecipeID(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, `{"id":"a/b","slug":"soup"}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "remove_recipe", "listId": "l-1", "slug": "soup"})
+	requireToolError(t, res, `"a/b" is not a valid slug or id.`)
+	if writes := writeRequests(api); len(writes) != 0 {
+		t.Errorf("writes = %+v, want none", writes)
+	}
+}
+
 func TestShoppingWrite_UpdateItemsMissingListIDRejected(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1"}`)

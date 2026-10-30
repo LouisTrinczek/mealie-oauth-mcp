@@ -38,6 +38,8 @@ type namedItem struct {
 	Subject string `json:"subject"`
 	Note    string `json:"note"`
 	Display string `json:"display"`
+
+	Quantity *float64 `json:"quantity"`
 }
 
 type itemsResult struct {
@@ -78,6 +80,7 @@ func TestToolGroups(t *testing.T) {
 		{"mealplans", g.planRecipe},
 		{"mealplans_id_round_trip", g.updateAndDeletePlannedMeal},
 		{"shopping", g.shopForRecipe},
+		{"shopping_zero_quantity", g.zeroItemQuantity},
 		{"history", g.madeRecipe},
 		{"ingredients_parse", g.parseIngredient},
 		{"feedback_rating", g.rateRecipe},
@@ -167,10 +170,11 @@ func (g *toolGroups) planRecipe(t *testing.T) {
 
 func (g *toolGroups) updateAndDeletePlannedMeal(t *testing.T) {
 	planned := g.plannedMeals(t)
-	if len(planned.Items) == 0 {
-		t.Fatalf("meal plan for %s is empty", plannedDate)
+	index := slices.IndexFunc(planned.Items, func(entry plannedEntry) bool { return entry.Recipe.Slug == g.slug })
+	if index < 0 {
+		t.Fatalf("meal plan for %s has no entry for recipe %s: %+v", plannedDate, g.slug, planned.Items)
 	}
-	id := planned.Items[0].ID
+	id := planned.Items[index].ID
 	var updated plannedEntry
 	callOK(t, g.session, "mealplans_write", map[string]any{"action": "update", "id": id, "fields": map[string]any{"text": plannedNote}}, &updated)
 	if updated.ID != id || updated.Text != plannedNote {
@@ -206,6 +210,20 @@ func (g *toolGroups) shopForRecipe(t *testing.T) {
 	}
 }
 
+func (g *toolGroups) zeroItemQuantity(t *testing.T) {
+	var before itemsResult
+	callOK(t, g.session, "shopping_read", map[string]any{"action": "list", "id": g.listID}, &before)
+	if len(before.Items) != 1 {
+		t.Fatalf("shopping list %s has %d items, want 1", g.listID, len(before.Items))
+	}
+	callOK(t, g.session, "shopping_write", map[string]any{"action": "update_items", "listId": g.listID, "items": []map[string]any{{"id": before.Items[0].ID, "quantity": 0}}}, nil)
+	var after itemsResult
+	callOK(t, g.session, "shopping_read", map[string]any{"action": "list", "id": g.listID}, &after)
+	if len(after.Items) != 1 || after.Items[0].Quantity != nil {
+		t.Fatalf("shopping list %s items %+v, want one item without a quantity", g.listID, after.Items)
+	}
+}
+
 func (g *toolGroups) madeRecipe(t *testing.T) {
 	callOK(t, g.session, "history_write", map[string]any{"action": "made_it", "slug": g.slug}, nil)
 	var timeline itemsResult
@@ -217,7 +235,7 @@ func (g *toolGroups) madeRecipe(t *testing.T) {
 
 func (g *toolGroups) parseIngredient(t *testing.T) {
 	var parsed []any
-	callOK(t, g.session, "ingredients_read", map[string]any{"action": "parse", "kind": "foods", "ingredients": []string{"2 cups flour"}}, &parsed)
+	callOK(t, g.session, "ingredients_read", map[string]any{"action": "parse", "ingredients": []string{"2 cups flour"}}, &parsed)
 	if len(parsed) == 0 {
 		t.Fatal("parse returned no ingredients")
 	}
@@ -239,6 +257,13 @@ func (g *toolGroups) readHousehold(t *testing.T) {
 	callOK(t, g.session, "account_read", map[string]any{"action": "household"}, &household)
 	if household.Name == "" {
 		t.Fatal("account_read household returned no name")
+	}
+	var raw struct {
+		ID string `json:"id"`
+	}
+	callOK(t, g.session, "account_read", map[string]any{"action": "household", "full": true}, &raw)
+	if raw.ID == "" {
+		t.Fatal("account_read household with full returned no id")
 	}
 }
 

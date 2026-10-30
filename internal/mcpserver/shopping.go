@@ -308,25 +308,26 @@ func recipeScale(scale float64) float64 {
 	return scale
 }
 
-func listRecipeTarget(ctx context.Context, s *session, action string, in shoppingWriteInput) (string, error) {
+func listRecipeTarget(ctx context.Context, s *session, action string, in shoppingWriteInput) (string, string, error) {
 	if err := need(action, "listId", in.ListID); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := need(action, "slug", in.Slug); err != nil {
-		return "", err
+		return "", "", err
 	}
-	if err := mealie.CheckSegment(in.ListID); err != nil {
-		return "", err
+	path, err := mealie.PathOf(shoppingListsPath, in.ListID, "recipe")
+	if err != nil {
+		return "", "", err
 	}
-	return recipeID(ctx, s, in.Slug)
+	id, err := recipeID(ctx, s, in.Slug)
+	if err != nil {
+		return "", "", err
+	}
+	return path, id, nil
 }
 
 func addListRecipe(ctx context.Context, s *session, in shoppingWriteInput) (any, error) {
-	id, err := listRecipeTarget(ctx, s, "add_recipe", in)
-	if err != nil {
-		return nil, err
-	}
-	path, err := mealie.PathOf(shoppingListsPath, in.ListID, "recipe")
+	path, id, err := listRecipeTarget(ctx, s, "add_recipe", in)
 	if err != nil {
 		return nil, err
 	}
@@ -339,11 +340,11 @@ func addListRecipe(ctx context.Context, s *session, in shoppingWriteInput) (any,
 }
 
 func removeListRecipe(ctx context.Context, s *session, in shoppingWriteInput) (any, error) {
-	id, err := listRecipeTarget(ctx, s, "remove_recipe", in)
+	recipePath, id, err := listRecipeTarget(ctx, s, "remove_recipe", in)
 	if err != nil {
 		return nil, err
 	}
-	path, err := mealie.PathOf(shoppingListsPath, in.ListID, "recipe", id, "delete")
+	path, err := mealie.PathOf(recipePath, id, "delete")
 	if err != nil {
 		return nil, err
 	}

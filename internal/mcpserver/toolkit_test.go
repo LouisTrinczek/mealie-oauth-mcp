@@ -418,7 +418,7 @@ func TestAgentError(t *testing.T) {
 			if got.Error() != tt.want.Error() {
 				t.Errorf("agentError = %v, want %v", got, tt.want)
 			}
-			if tt.err != unreadable && got != tt.err {
+			if !errors.Is(tt.err, unreadable) && !errors.Is(got, tt.err) {
 				t.Errorf("agentError = %v, want the error unchanged", got)
 			}
 		})
