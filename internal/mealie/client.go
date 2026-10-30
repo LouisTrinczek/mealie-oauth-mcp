@@ -14,7 +14,14 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/tracing"
 )
 
 const (
@@ -38,6 +45,8 @@ var (
 type Options struct {
 	HTTPClient *http.Client
 	UserAgent  string
+	Metrics    *metrics.Registry
+	Tracing    trace.TracerProvider
 }
 
 type Client struct {
@@ -45,6 +54,8 @@ type Client struct {
 	http      *http.Client
 	userAgent string
 	backoff   []time.Duration
+	metrics   *metrics.Registry
+	tracer    trace.Tracer
 }
 
 func New(baseURL *url.URL, opts Options) *Client {
@@ -56,7 +67,22 @@ func New(baseURL *url.URL, opts Options) *Client {
 	if userAgent == "" {
 		userAgent = defaultUserAgent
 	}
-	return &Client{baseURL: baseURL, http: httpClient, userAgent: userAgent, backoff: defaultBackoff}
+	registry := opts.Metrics
+	if registry == nil {
+		registry = metrics.New()
+	}
+	tracerProvider := opts.Tracing
+	if tracerProvider == nil {
+		tracerProvider = noop.NewTracerProvider()
+	}
+	return &Client{
+		baseURL:   baseURL,
+		http:      httpClient,
+		userAgent: userAgent,
+		backoff:   defaultBackoff,
+		metrics:   registry,
+		tracer:    tracing.Tracer(tracerProvider),
+	}
 }
 
 func refuseRedirect(*http.Request, []*http.Request) error {
@@ -163,7 +189,37 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+func outcome(err error) string {
+	var apiErr *APIError
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.As(err, &apiErr) && apiErr.Status >= http.StatusInternalServerError:
+		return "server_error"
+	case errors.As(err, &apiErr):
+		return "client_error"
+	default:
+		return "unreachable"
+	}
+}
+
 func (c *Client) attempt(ctx context.Context, tok secret.Secret, method, target string, payload []byte) ([]byte, error) {
+	ctx, span := c.tracer.Start(ctx, "mealie "+method, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+	started := time.Now()
+	raw, err := c.send(ctx, tok, method, target, payload)
+	result := outcome(err)
+	c.metrics.ObserveMealie(method, result, time.Since(started))
+	span.SetAttributes(attribute.String("http.request.method", method), attribute.String("mealie.outcome", result))
+	if err != nil {
+		span.SetStatus(codes.Error, result)
+	}
+	return raw, err
+}
+
+func (c *Client) send(ctx context.Context, tok secret.Secret, method, target string, payload []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("building mealie request: %w", err)
