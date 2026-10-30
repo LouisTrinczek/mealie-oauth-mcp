@@ -230,7 +230,7 @@ func TestRecipesWrite_UpdateSendsOnlyGivenFields(t *testing.T) {
 
 func TestRecipesWrite_DeleteReportsSuccess(t *testing.T) {
 	api := newFakeMealie(t)
-	api.on(http.MethodDelete, "/api/recipes/tomato-soup", http.StatusOK, "")
+	api.on(http.MethodDelete, "/api/recipes/tomato-soup", http.StatusOK, recipeBody)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "recipes_write", map[string]any{"action": "delete", "slug": "tomato-soup"})
@@ -346,7 +346,7 @@ func TestRecipesWrite_ImageAndAssetUrls(t *testing.T) {
 		body   string
 		want   string
 	}{
-		{"Image", "set_image_url", "/api/recipes/tomato-soup/image", "", `{"ok":true}`},
+		{"Image", "set_image_url", "/api/recipes/tomato-soup/image", `{"message":"done","error":false}`, `{"ok":true}`},
 		{"Asset", "add_asset_url", "/api/recipes/tomato-soup/assets/url", `{"name":"a","userId":"u"}`, `{"name":"a"}`},
 	}
 	for _, tt := range tests {
@@ -428,7 +428,7 @@ func TestRecipesWrite_BulkTagResolvesSlugs(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/organizers/tags/slug/quick", http.StatusOK, `{"id":"t-1","name":"Quick","slug":"quick","groupId":"g-1"}`)
 	api.on(http.MethodGet, "/api/organizers/tags/slug/vegan", http.StatusOK, `{"id":"t-2","name":"Vegan","slug":"vegan","groupId":"g-1"}`)
-	api.on(http.MethodPost, "/api/recipes/bulk-actions/tag", http.StatusOK, "")
+	api.on(http.MethodPost, "/api/recipes/bulk-actions/tag", http.StatusOK, `{"message":"done","error":false}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "recipes_write", map[string]any{"action": "bulk_tag", "slugs": []string{"a", "b"}, "tags": []string{"quick", "vegan"}})
@@ -448,10 +448,13 @@ func TestRecipesWrite_BulkTagResolvesSlugs(t *testing.T) {
 func TestRecipesWrite_BulkCategorizeResolvesSlugs(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/organizers/categories/slug/soup", http.StatusOK, `{"id":"c-1","name":"Soup","slug":"soup","groupId":"g-1"}`)
-	api.on(http.MethodPost, "/api/recipes/bulk-actions/categorize", http.StatusOK, "")
+	api.on(http.MethodPost, "/api/recipes/bulk-actions/categorize", http.StatusOK, `{"message":"done","error":false}`)
 	cs := connectTools(t, api)
 
-	callTool(t, cs, "recipes_write", map[string]any{"action": "bulk_categorize", "slugs": []string{"a"}, "categories": []string{"soup"}})
+	res := callTool(t, cs, "recipes_write", map[string]any{"action": "bulk_categorize", "slugs": []string{"a"}, "categories": []string{"soup"}})
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %s (error %v)", got, res.IsError)
+	}
 	seen := api.requests()
 	want := `{"categories":[{"id":"c-1","name":"Soup","slug":"soup"}],"recipes":["a"]}`
 	if len(seen) != 2 || seen[1].Path != "/api/recipes/bulk-actions/categorize" || seen[1].Body != want {
@@ -476,7 +479,7 @@ func TestRecipesWrite_BulkTagUnknownTagStops(t *testing.T) {
 
 func TestRecipesWrite_BulkDelete(t *testing.T) {
 	api := newFakeMealie(t)
-	api.on(http.MethodPost, "/api/recipes/bulk-actions/delete", http.StatusOK, "")
+	api.on(http.MethodPost, "/api/recipes/bulk-actions/delete", http.StatusOK, `{"message":"done","error":false}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "recipes_write", map[string]any{"action": "bulk_delete", "slugs": []string{"a", "b"}})

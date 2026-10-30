@@ -166,11 +166,10 @@ func deleteRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, e
 	if err := need("delete", "slug", in.Slug); err != nil {
 		return nil, err
 	}
-	raw, err := callRecipe(ctx, s, http.MethodDelete, in.Slug, "", nil)
-	if err != nil {
+	if _, err := callRecipe(ctx, s, http.MethodDelete, in.Slug, "", nil); err != nil {
 		return nil, err
 	}
-	return ok(raw), nil
+	return ok(nil), nil
 }
 
 func markMade(ctx context.Context, s *session, slug, timestamp string) error {
@@ -191,26 +190,29 @@ func markMadeAction(ctx context.Context, s *session, in recipesWriteInput) (any,
 	return ok(nil), nil
 }
 
-func postRecipeURL(ctx context.Context, s *session, action, suffix string, in recipesWriteInput) (any, error) {
+func postRecipeURL(ctx context.Context, s *session, action, suffix string, in recipesWriteInput) (json.RawMessage, error) {
 	if err := need(action, "slug", in.Slug); err != nil {
 		return nil, err
 	}
 	if err := need(action, "url", in.URL); err != nil {
 		return nil, err
 	}
-	raw, err := callRecipe(ctx, s, http.MethodPost, in.Slug, suffix, map[string]string{"url": in.URL})
+	return callRecipe(ctx, s, http.MethodPost, in.Slug, suffix, map[string]string{"url": in.URL})
+}
+
+func setRecipeImage(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if _, err := postRecipeURL(ctx, s, "set_image_url", "/image", in); err != nil {
+		return nil, err
+	}
+	return ok(nil), nil
+}
+
+func addRecipeAsset(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	raw, err := postRecipeURL(ctx, s, "add_asset_url", "/assets/url", in)
 	if err != nil {
 		return nil, err
 	}
 	return ok(raw), nil
-}
-
-func setRecipeImage(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
-	return postRecipeURL(ctx, s, "set_image_url", "/image", in)
-}
-
-func addRecipeAsset(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
-	return postRecipeURL(ctx, s, "add_asset_url", "/assets/url", in)
 }
 
 func shareRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
@@ -279,11 +281,10 @@ func bulkOrganize(ctx context.Context, s *session, action, field string, slugs, 
 	if err != nil {
 		return nil, err
 	}
-	raw, err := s.call(ctx, http.MethodPost, bulkPath, nil, map[string]any{"recipes": slugs, bodyKey: resolved})
-	if err != nil {
+	if _, err := s.call(ctx, http.MethodPost, bulkPath, nil, map[string]any{"recipes": slugs, bodyKey: resolved}); err != nil {
 		return nil, err
 	}
-	return ok(raw), nil
+	return ok(nil), nil
 }
 
 func bulkTag(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
@@ -301,11 +302,10 @@ func bulkDelete(ctx context.Context, s *session, in recipesWriteInput) (any, err
 	if err := checkSlugs(in.Slugs); err != nil {
 		return nil, err
 	}
-	raw, err := s.call(ctx, http.MethodPost, recipesPath+"/bulk-actions/delete", nil, map[string]any{"recipes": in.Slugs})
-	if err != nil {
+	if _, err := s.call(ctx, http.MethodPost, recipesPath+"/bulk-actions/delete", nil, map[string]any{"recipes": in.Slugs}); err != nil {
 		return nil, err
 	}
-	return ok(raw), nil
+	return ok(nil), nil
 }
 
 func recipeID(ctx context.Context, s *session, slug string) (string, error) {
