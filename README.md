@@ -178,7 +178,8 @@ ChatGPT, Cursor, and VS Code should work but are untested.
 | `mealie_api` | none |
 
 Tools ending in `_read` only read data, so clients can set them to "always
-allow". Tools ending in `_write` can change and delete data.
+allow". Tools ending in `_write` can change and delete data. `mealie_api` can both
+read and write, so don't set it to always allow.
 
 `mealie_api` calls a Mealie API endpoint as the logged-in user, for everyday
 areas that no grouped tool covers. It blocks admin, auth and API-token,
