@@ -2,14 +2,11 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
 )
 
@@ -84,11 +81,7 @@ func postTimelineEvent(ctx context.Context, s *session, body map[string]string) 
 	if err != nil {
 		return nil, err
 	}
-	var event map[string]any
-	if err := json.Unmarshal(raw, &event); err != nil {
-		return nil, fmt.Errorf("decoding the timeline event: %w", err)
-	}
-	return view.Compact(event, timelineFields), nil
+	return compactWrite(raw, timelineFields), nil
 }
 
 func timelineBody(recipe, subject, eventType string, in historyWriteInput) map[string]string {
@@ -128,9 +121,7 @@ func madeIt(ctx context.Context, s *session, in historyWriteInput) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	if in.Timestamp == "" {
-		in.Timestamp = s.clock().UTC().Format(time.RFC3339)
-	}
+	in.Timestamp = s.timestampOrNow(in.Timestamp)
 	if err := markMade(ctx, s, in.Slug, in.Timestamp); err != nil {
 		return nil, err
 	}
@@ -146,15 +137,5 @@ func updateTimelineEvent(ctx context.Context, s *session, in historyWriteInput) 
 }
 
 func deleteTimelineEvent(ctx context.Context, s *session, in historyWriteInput) (any, error) {
-	if err := need("delete", "id", in.ID); err != nil {
-		return nil, err
-	}
-	path, err := mealie.PathOf(timelinePath, in.ID)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := s.call(ctx, http.MethodDelete, path, nil, nil); err != nil {
-		return nil, err
-	}
-	return ok(nil), nil
+	return deleteByID(ctx, s, "delete", timelinePath, in.ID)
 }

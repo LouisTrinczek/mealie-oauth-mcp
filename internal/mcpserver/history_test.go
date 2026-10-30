@@ -135,18 +135,53 @@ func TestHistoryWrite_MadeItUsesGivenTimestampForBothRequests(t *testing.T) {
 	}
 }
 
-func TestHistoryWrite_MadeItPartialFailure(t *testing.T) {
+func TestHistoryWrite_MadeItUnreadableEventIsSuccess(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
 	api.on(http.MethodPatch, "/api/recipes/soup/last-made", http.StatusOK, "")
-	api.on(http.MethodPost, "/api/recipes/timeline/events", http.StatusUnprocessableEntity, `{"detail":"bad"}`)
+	api.on(http.MethodPost, "/api/recipes/timeline/events", http.StatusCreated, `[]`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "history_write", map[string]any{"action": "made_it", "slug": "soup"})
-	want := "Marked soup as made, but adding the timeline entry failed: Mealie rejected the request (422): bad. Fix the arguments and try again."
-	if got := resultText(t, res); !res.IsError || got != want {
-		t.Errorf("result = %s (error %v), want %s", got, res.IsError, want)
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %s (error %v), want {\"ok\":true}", got, res.IsError)
 	}
+	seen := api.requests()
+	if len(seen) != 3 || seen[1].Method != http.MethodPatch || seen[2].Method != http.MethodPost {
+		t.Errorf("requests = %+v, want lookup, PATCH and POST", seen)
+	}
+}
+
+func TestHistoryWrite_MadeItFailures(t *testing.T) {
+	t.Run("LastMadeFailureSendsNoTimelineEntry", func(t *testing.T) {
+		api := newFakeMealie(t)
+		api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
+		api.on(http.MethodPatch, "/api/recipes/soup/last-made", http.StatusUnprocessableEntity, `{"detail":"bad"}`)
+		cs := connectTools(t, api)
+
+		res := callTool(t, cs, "history_write", map[string]any{"action": "made_it", "slug": "soup"})
+		if !res.IsError {
+			t.Errorf("result = %s, want a tool error", resultText(t, res))
+		}
+		for _, r := range api.requests() {
+			if r.Method == http.MethodPost && r.Path == "/api/recipes/timeline/events" {
+				t.Errorf("requests = %+v, want no timeline POST", api.requests())
+			}
+		}
+	})
+	t.Run("TimelineFailureReportsPartialSuccess", func(t *testing.T) {
+		api := newFakeMealie(t)
+		api.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
+		api.on(http.MethodPatch, "/api/recipes/soup/last-made", http.StatusOK, "")
+		api.on(http.MethodPost, "/api/recipes/timeline/events", http.StatusUnprocessableEntity, `{"detail":"bad"}`)
+		cs := connectTools(t, api)
+
+		res := callTool(t, cs, "history_write", map[string]any{"action": "made_it", "slug": "soup"})
+		want := "Marked soup as made, but adding the timeline entry failed: Mealie rejected the request (422): bad. Fix the arguments and try again."
+		if got := resultText(t, res); !res.IsError || got != want {
+			t.Errorf("result = %s (error %v), want %s", got, res.IsError, want)
+		}
+	})
 }
 
 func TestHistoryWrite_UpdateMerges(t *testing.T) {
@@ -233,7 +268,6 @@ func TestHistoryTools_ReportMealieFailures(t *testing.T) {
 		{"TimelineGet", "history_read", map[string]any{"action": "timeline"}, []cannedRoute{{http.MethodGet, timelinePath, http.StatusInternalServerError, ""}}},
 		{"AddRecipeLookup", "history_write", map[string]any{"action": "add", "slug": "soup", "subject": "x"}, []cannedRoute{{http.MethodGet, "/api/recipes/soup", http.StatusInternalServerError, ""}}},
 		{"AddPost", "history_write", map[string]any{"action": "add", "slug": "soup", "subject": "x"}, []cannedRoute{soup, {http.MethodPost, timelinePath, http.StatusInternalServerError, ""}}},
-		{"AddDecode", "history_write", map[string]any{"action": "add", "slug": "soup", "subject": "x"}, []cannedRoute{soup, {http.MethodPost, timelinePath, http.StatusCreated, `[]`}}},
 		{"MadeItRecipeLookup", "history_write", map[string]any{"action": "made_it", "slug": "soup"}, []cannedRoute{{http.MethodGet, "/api/recipes/soup", http.StatusInternalServerError, ""}}},
 		{"MadeItLastMade", "history_write", map[string]any{"action": "made_it", "slug": "soup"}, []cannedRoute{soup, {http.MethodPatch, "/api/recipes/soup/last-made", http.StatusInternalServerError, ""}}},
 		{"UpdateGet", "history_write", map[string]any{"action": "update", "id": "e-1", "fields": map[string]any{"x": 1}}, []cannedRoute{{http.MethodGet, timelinePath + "/e-1", http.StatusNotFound, `{"detail":"gone"}`}}},
