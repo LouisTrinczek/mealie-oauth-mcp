@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	mealieScope  = "mealie"
-	sessionIDKey = "session_id"
+	mealieScope    = "mealie"
+	sessionIDKey   = "session_id"
+	gettingSession = "getting session"
 )
 
 var (
@@ -87,7 +88,7 @@ func (m *Manager) Verify(ctx context.Context, tok string, _ *http.Request) (*aut
 	}
 	session, err := m.store.GetSession(ctx, access.SessionID)
 	if err != nil {
-		return nil, m.lookupFailure(ctx, "getting session", err)
+		return nil, m.lookupFailure(ctx, gettingSession, err)
 	}
 	if !m.usable(session) {
 		return nil, auth.ErrInvalidToken
@@ -115,7 +116,7 @@ func (m *Manager) MealieToken(ctx context.Context, info *auth.TokenInfo) (secret
 	}
 	session, err := m.store.GetSession(ctx, id)
 	if err != nil {
-		return secret.Secret{}, m.lookupFailure(ctx, "getting session", err)
+		return secret.Secret{}, m.lookupFailure(ctx, gettingSession, err)
 	}
 	if !session.RevokedAt.IsZero() {
 		return secret.Secret{}, auth.ErrInvalidToken
@@ -146,7 +147,7 @@ func (m *Manager) renewIfDue(ctx context.Context, session store.Session) error {
 func (m *Manager) renew(ctx context.Context, id string) error {
 	session, err := m.store.GetSession(ctx, id)
 	if err != nil {
-		return m.lookupFailure(ctx, "getting session", err)
+		return m.lookupFailure(ctx, gettingSession, err)
 	}
 	if !session.RevokedAt.IsZero() {
 		return auth.ErrInvalidToken

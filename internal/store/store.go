@@ -60,7 +60,7 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) Ping(ctx context.Context) error {
-	return s.probeWriteLock(ctx, func() {})
+	return s.probeWriteLock(ctx, nil)
 }
 
 func (s *Store) probeWriteLock(ctx context.Context, whileLocked func()) (err error) {
@@ -70,7 +70,7 @@ func (s *Store) probeWriteLock(ctx context.Context, whileLocked func()) (err err
 	}
 	defer func() { err = errors.Join(err, conn.Close()) }()
 	_, beginErr := conn.ExecContext(ctx, "BEGIN IMMEDIATE")
-	if beginErr == nil {
+	if beginErr == nil && whileLocked != nil {
 		whileLocked()
 	}
 	_, rollbackErr := conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")

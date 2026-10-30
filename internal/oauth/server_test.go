@@ -455,7 +455,7 @@ func (e *testEnv) wantCode(t *testing.T, resp reply) string {
 	return code
 }
 
-func wantPage(t *testing.T, resp reply, body string, status int, copy string) {
+func wantPage(t *testing.T, resp reply, body string, status int, wantText string) {
 	t.Helper()
 	if resp.StatusCode != status {
 		t.Fatalf("status = %d, want %d; body: %s", resp.StatusCode, status, body)
@@ -463,8 +463,8 @@ func wantPage(t *testing.T, resp reply, body string, status int, copy string) {
 	if loc := resp.Header.Get("Location"); loc != "" {
 		t.Fatalf("error page redirected to %q", loc)
 	}
-	if !strings.Contains(body, copy) {
-		t.Fatalf("body lacks %q: %s", copy, body)
+	if !strings.Contains(body, wantText) {
+		t.Fatalf("body lacks %q: %s", wantText, body)
 	}
 }
 
