@@ -490,6 +490,18 @@ func TestCall_SendsQueryAndBody(t *testing.T) {
 	}
 }
 
+func redirectingHandler(status int, sources, targets *atomic.Int32) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/target" {
+			targets.Add(1)
+			respond(w, `{}`)
+			return
+		}
+		sources.Add(1)
+		http.Redirect(w, r, "/api/target", status)
+	}
+}
+
 func TestCall_RefusesRedirects(t *testing.T) {
 	const wantMessage = "Mealie redirected the request. Check that MEALIE_URL points directly at Mealie."
 	for _, tc := range []struct {
@@ -501,15 +513,7 @@ func TestCall_RefusesRedirects(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%s %d", tc.method, tc.status), func(t *testing.T) {
 			var sources, targets atomic.Int32
-			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/api/target" {
-					targets.Add(1)
-					respond(w, `{}`)
-					return
-				}
-				sources.Add(1)
-				http.Redirect(w, r, "/api/target", tc.status)
-			}))
+			c := newTestClient(t, redirectingHandler(tc.status, &sources, &targets))
 
 			_, err := c.Call(context.Background(), secret.FromString("tok"), tc.method, "/api/source", nil, map[string]string{"a": "b"})
 			var apiErr *APIError

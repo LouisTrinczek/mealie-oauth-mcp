@@ -206,20 +206,21 @@ func TestRecipeID(t *testing.T) {
 			s := &session{tokens: &fakeTokens{}, mealie: api.client(t)}
 
 			got, err := recipeID(context.Background(), s, tt.slug)
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("err = %v, want containing %q", err, tt.wantErr)
-				}
-				if got != "" {
-					t.Errorf("id = %q, want empty on error", got)
-				}
-				return
+			if got != tt.want {
+				t.Errorf("id = %q, want %q", got, tt.want)
 			}
-			if err != nil || got != tt.want {
-				t.Errorf("recipeID = %q, %v; want %q", got, err, tt.want)
+			if !errorMatches(err, tt.wantErr) {
+				t.Errorf("err = %v, want containing %q", err, tt.wantErr)
 			}
 		})
 	}
+}
+
+func errorMatches(err error, want string) bool {
+	if err == nil {
+		return want == ""
+	}
+	return want != "" && strings.Contains(err.Error(), want)
 }
 
 func TestRecipesWrite_UpdateSendsOnlyGivenFields(t *testing.T) {

@@ -259,32 +259,44 @@ func organizers(ctx context.Context, s *session, prefix string, slugs []string) 
 	return found, nil
 }
 
-func bulkOrganize(ctx context.Context, s *session, action, field string, slugs, organizerSlugs []string, lookupPrefix, bulkPath, bodyKey string) (any, error) {
+type bulkTarget struct {
+	action       string
+	field        string
+	lookupPrefix string
+	bulkPath     string
+}
+
+var (
+	tagTarget      = bulkTarget{action: "bulk_tag", field: "tags", lookupPrefix: tagsPath, bulkPath: recipesPath + "/bulk-actions/tag"}
+	categoryTarget = bulkTarget{action: "bulk_categorize", field: "categories", lookupPrefix: categoriesPath, bulkPath: recipesPath + "/bulk-actions/categorize"}
+)
+
+func bulkOrganize(ctx context.Context, s *session, target bulkTarget, slugs, organizerSlugs []string) (any, error) {
 	if len(slugs) == 0 {
-		return nil, needPresent(action, "slugs", false)
+		return nil, needPresent(target.action, "slugs", false)
 	}
 	if len(organizerSlugs) == 0 {
-		return nil, needPresent(action, field, false)
+		return nil, needPresent(target.action, target.field, false)
 	}
 	if err := checkSlugs(slugs); err != nil {
 		return nil, err
 	}
-	resolved, err := organizers(ctx, s, lookupPrefix, organizerSlugs)
+	resolved, err := organizers(ctx, s, target.lookupPrefix, organizerSlugs)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.call(ctx, http.MethodPost, bulkPath, nil, map[string]any{"recipes": slugs, bodyKey: resolved}); err != nil {
+	if _, err := s.call(ctx, http.MethodPost, target.bulkPath, nil, map[string]any{"recipes": slugs, target.field: resolved}); err != nil {
 		return nil, err
 	}
 	return ok(nil), nil
 }
 
 func bulkTag(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
-	return bulkOrganize(ctx, s, "bulk_tag", "tags", in.Slugs, in.Tags, tagsPath, recipesPath+"/bulk-actions/tag", "tags")
+	return bulkOrganize(ctx, s, tagTarget, in.Slugs, in.Tags)
 }
 
 func bulkCategorize(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
-	return bulkOrganize(ctx, s, "bulk_categorize", "categories", in.Slugs, in.Categories, categoriesPath, recipesPath+"/bulk-actions/categorize", "categories")
+	return bulkOrganize(ctx, s, categoryTarget, in.Slugs, in.Categories)
 }
 
 func bulkDelete(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
