@@ -82,3 +82,18 @@ func TestNew_RegistriesAreIndependent(t *testing.T) {
 		t.Error("second registry shares counts with the first")
 	}
 }
+
+func TestMiddleware_DefaultsToStatus200WhenHandlerNeverWritesHeader(t *testing.T) {
+	registry := New()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /plain", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	registry.Middleware(mux).ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/plain", nil))
+
+	want := `mealie_mcp_http_request_duration_seconds_count{code="200",route="GET /plain"} 1`
+	if !strings.Contains(scrape(t, registry), want) {
+		t.Errorf("scrape missing %q", want)
+	}
+}
