@@ -198,7 +198,7 @@ func pageQuery(page, perPage int) url.Values {
 	}
 }
 
-func mergeUpdate(ctx context.Context, s *session, path string, fields map[string]any) (json.RawMessage, error) {
+func mergedObject(ctx context.Context, s *session, path string, fields map[string]any) (map[string]any, error) {
 	raw, err := s.call(ctx, http.MethodGet, path, nil, nil)
 	if err != nil {
 		return nil, err
@@ -212,6 +212,14 @@ func mergeUpdate(ctx context.Context, s *session, path string, fields map[string
 		merged[key] = value
 	}
 	maps.Copy(merged, fields)
+	return merged, nil
+}
+
+func mergeUpdate(ctx context.Context, s *session, path string, fields map[string]any) (json.RawMessage, error) {
+	merged, err := mergedObject(ctx, s, path, fields)
+	if err != nil {
+		return nil, err
+	}
 	return s.call(ctx, http.MethodPut, path, nil, merged)
 }
 
@@ -232,7 +240,7 @@ func ok(raw json.RawMessage) any {
 	return raw
 }
 
-func updateByID(ctx context.Context, s *session, action, prefix, id string, fields map[string]any) (any, error) {
+func updateRaw(ctx context.Context, s *session, action, prefix, id string, fields map[string]any) (json.RawMessage, error) {
 	if err := need(action, "id", id); err != nil {
 		return nil, err
 	}
@@ -243,7 +251,11 @@ func updateByID(ctx context.Context, s *session, action, prefix, id string, fiel
 	if err != nil {
 		return nil, err
 	}
-	raw, err := mergeUpdate(ctx, s, path, fields)
+	return mergeUpdate(ctx, s, path, fields)
+}
+
+func updateByID(ctx context.Context, s *session, action, prefix, id string, fields map[string]any) (any, error) {
+	raw, err := updateRaw(ctx, s, action, prefix, id, fields)
 	if err != nil {
 		return nil, err
 	}
