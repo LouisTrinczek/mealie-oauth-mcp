@@ -183,6 +183,8 @@ func TestRecipeID(t *testing.T) {
 		{"ReturnsID", "tomato-soup", http.StatusOK, recipeBody, "r-1", ""},
 		{"BadSlug", "a/b", http.StatusOK, "", "", `"a/b" is not a valid slug or id.`},
 		{"MealieError", "nope", http.StatusNotFound, `{"detail":"gone"}`, "", "Mealie could not find that (404): gone. Check the slug or id; search or list to find it."},
+		{"EmptyObject", "empty", http.StatusOK, `{}`, "", `Mealie returned recipe "empty" without an id.`},
+		{"MissingID", "x", http.StatusOK, `{"slug":"x"}`, "", `Mealie returned recipe "x" without an id.`},
 		{"UnexpectedShape", "odd", http.StatusOK, `[]`, "", `decoding recipe "odd"`},
 	}
 	for _, tt := range tests {
@@ -195,6 +197,9 @@ func TestRecipeID(t *testing.T) {
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("err = %v, want containing %q", err, tt.wantErr)
+				}
+				if got != "" {
+					t.Errorf("id = %q, want empty on error", got)
 				}
 				return
 			}

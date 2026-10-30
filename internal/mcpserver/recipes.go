@@ -64,6 +64,9 @@ func recipeID(ctx context.Context, s *session, slug string) (string, error) {
 	if err := json.Unmarshal(raw, &recipe); err != nil {
 		return "", fmt.Errorf("decoding recipe %q: %w", slug, err)
 	}
+	if recipe.ID == "" {
+		return "", toolFailure(fmt.Sprintf("Mealie returned recipe %q without an id.", slug))
+	}
 	return recipe.ID, nil
 }
 
