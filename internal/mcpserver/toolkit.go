@@ -228,6 +228,13 @@ func textResult(value any) (*mcp.CallToolResult, any, error) {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(encoded)}}}, nil, nil
 }
 
+func (s *session) timestampOrNow(given string) string {
+	if given != "" {
+		return given
+	}
+	return s.clock().UTC().Format(time.RFC3339)
+}
+
 func need(action, field, value string) error {
 	return needPresent(action, field, value != "")
 }

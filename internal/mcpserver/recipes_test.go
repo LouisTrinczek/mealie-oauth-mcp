@@ -56,7 +56,10 @@ func TestRecipesRead_RejectsUnknownOrderDirection(t *testing.T) {
 
 	res := callTool(t, cs, "recipes_read", map[string]any{"action": "search", "orderDirection": "sideways"})
 	if !res.IsError {
-		t.Error("IsError = false, want a validation error")
+		t.Fatal("IsError = false, want a validation error")
+	}
+	if text := resultText(t, res); !strings.Contains(text, `validating "arguments"`) || !strings.Contains(text, "orderDirection") {
+		t.Errorf("text = %q, want it to name the arguments and orderDirection", text)
 	}
 	if seen := api.requests(); len(seen) != 0 {
 		t.Errorf("requests = %+v, want none", seen)
@@ -78,9 +81,8 @@ func TestRecipesRead_GetTrimmedAndFull(t *testing.T) {
 	if full.IsError {
 		t.Fatalf("tool error: %s", resultText(t, full))
 	}
-	want := recipeBody
-	if got := resultText(t, full); got != want {
-		t.Errorf("full = %s, want %s", got, want)
+	if got := resultText(t, full); got != recipeBody {
+		t.Errorf("full = %s, want %s", got, recipeBody)
 	}
 }
 
@@ -115,6 +117,7 @@ func TestRecipesRead_Suggest(t *testing.T) {
 		{"DefaultsToTen", 0, "10"},
 		{"CapsAtFifty", 99, "50"},
 		{"KeepsValidLimit", 5, "5"},
+		{"NegativeUsesDefault", -3, "10"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -134,6 +137,17 @@ func TestRecipesRead_Suggest(t *testing.T) {
 				t.Errorf("requests = %+v, want query %v", seen, want)
 			}
 		})
+	}
+}
+
+func TestRecipesRead_SuggestSkipsEntriesWithoutRecipe(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/recipes/suggestions", http.StatusOK, `{"items":[{"missingFoods":[{"name":"Basil"}]},{"recipe":{"id":"r-2","slug":"salad","name":"Salad"},"missingFoods":[]},{"recipe":{},"missingFoods":[]},{"recipe":"x"}]}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "recipes_read", map[string]any{"action": "suggest"})
+	if got, want := resultText(t, res), `{"items":[{"recipe":{"id":"r-2","name":"Salad","slug":"salad"}}]}`; got != want {
+		t.Errorf("result = %s, want %s", got, want)
 	}
 }
 
@@ -166,9 +180,7 @@ func TestRecipesRead_SuggestRejectsUnexpectedShape(t *testing.T) {
 	api.on(http.MethodGet, "/api/recipes/suggestions", http.StatusOK, `[]`)
 	cs := connectTools(t, api)
 
-	if res := callTool(t, cs, "recipes_read", map[string]any{"action": "suggest"}); !res.IsError {
-		t.Error("IsError = false, want a tool error")
-	}
+	requireToolError(t, callTool(t, cs, "recipes_read", map[string]any{"action": "suggest"}), string(errUnreadableRead))
 }
 
 func TestRecipeID(t *testing.T) {
@@ -270,9 +282,7 @@ func TestRecipesWrite_CreateRejectsNonStringBody(t *testing.T) {
 	api.on(http.MethodPost, "/api/recipes", http.StatusCreated, `{"slug":"x"}`)
 	cs := connectTools(t, api)
 
-	if res := callTool(t, cs, "recipes_write", map[string]any{"action": "create", "name": "X"}); !res.IsError {
-		t.Error("IsError = false, want a tool error")
-	}
+	requireToolError(t, callTool(t, cs, "recipes_write", map[string]any{"action": "create", "name": "X"}), string(errUnreadableWrite))
 }
 
 func TestRecipesWrite_DuplicateReturnsCompactRecipe(t *testing.T) {
@@ -306,9 +316,7 @@ func TestRecipesWrite_DuplicateRejectsUnexpectedShape(t *testing.T) {
 	api.on(http.MethodPost, "/api/recipes/tomato-soup/duplicate", http.StatusCreated, `[]`)
 	cs := connectTools(t, api)
 
-	if res := callTool(t, cs, "recipes_write", map[string]any{"action": "duplicate", "slug": "tomato-soup"}); !res.IsError {
-		t.Error("IsError = false, want a tool error")
-	}
+	requireToolError(t, callTool(t, cs, "recipes_write", map[string]any{"action": "duplicate", "slug": "tomato-soup"}), string(errUnreadableWrite))
 }
 
 func TestRecipesWrite_MarkMadeDefaultsToClock(t *testing.T) {
@@ -396,18 +404,19 @@ func TestRecipesWrite_ShareFailures(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(api *fakeAPI)
+		want  string
 	}{
 		{"RecipeLookupFails", func(api *fakeAPI) {
 			api.on(http.MethodGet, "/api/recipes/tomato-soup", http.StatusNotFound, `{"detail":"gone"}`)
-		}},
+		}, "Mealie could not find that (404): gone. Check the slug or id; search or list to find it."},
 		{"ShareFails", func(api *fakeAPI) {
 			api.on(http.MethodGet, "/api/recipes/tomato-soup", http.StatusOK, recipeBody)
 			api.on(http.MethodPost, "/api/shared/recipes", http.StatusForbidden, `{"detail":"no"}`)
-		}},
+		}, "Your Mealie user is not allowed to do this (403): no."},
 		{"ShareBodyUnexpected", func(api *fakeAPI) {
 			api.on(http.MethodGet, "/api/recipes/tomato-soup", http.StatusOK, recipeBody)
 			api.on(http.MethodPost, "/api/shared/recipes", http.StatusCreated, `[]`)
-		}},
+		}, string(errUnreadableWrite)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -415,9 +424,7 @@ func TestRecipesWrite_ShareFailures(t *testing.T) {
 			tt.setup(api)
 			cs := connectTools(t, api)
 
-			if res := callTool(t, cs, "recipes_write", map[string]any{"action": "share", "slug": "tomato-soup"}); !res.IsError {
-				t.Error("IsError = false, want a tool error")
-			}
+			requireToolError(t, callTool(t, cs, "recipes_write", map[string]any{"action": "share", "slug": "tomato-soup"}), tt.want)
 		})
 	}
 }
@@ -569,6 +576,7 @@ func TestRecipesWrite_Annotations(t *testing.T) {
 
 func TestRecipesWrite_ReportsMealieFailures(t *testing.T) {
 	forbidden := "Your Mealie user is not allowed to do this (403): no."
+	unconfirmed := string(errWriteUnconfirmed)
 	tests := []struct {
 		name   string
 		args   map[string]any
@@ -578,6 +586,9 @@ func TestRecipesWrite_ReportsMealieFailures(t *testing.T) {
 		body   string
 		want   string
 	}{
+		{"AddAssetURL", map[string]any{"action": "add_asset_url", "slug": "a", "url": "https://e.com"}, http.MethodPost, "/api/recipes/a/assets/url", http.StatusInternalServerError, `{"detail":"boom"}`, unconfirmed},
+		{"Share", map[string]any{"action": "share", "slug": "a"}, http.MethodPost, "/api/shared/recipes", http.StatusInternalServerError, `{"detail":"boom"}`, unconfirmed},
+		{"BulkCategorize", map[string]any{"action": "bulk_categorize", "slugs": []string{"a"}, "categories": []string{"c"}}, http.MethodPost, "/api/recipes/bulk-actions/categorize", http.StatusInternalServerError, `{"detail":"boom"}`, unconfirmed},
 		{"Create", map[string]any{"action": "create", "name": "X"}, http.MethodPost, "/api/recipes", http.StatusForbidden, `{"detail":"no"}`, forbidden},
 		{"Import", map[string]any{"action": "import_url", "url": "https://e.com"}, http.MethodPost, "/api/recipes/create/url", http.StatusForbidden, `{"detail":"no"}`, forbidden},
 		{"Update", map[string]any{"action": "update", "slug": "a", "fields": map[string]any{"x": 1}}, http.MethodPatch, "/api/recipes/a", http.StatusForbidden, `{"detail":"no"}`, forbidden},
@@ -592,6 +603,8 @@ func TestRecipesWrite_ReportsMealieFailures(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			api := newFakeMealie(t)
 			api.on(http.MethodGet, "/api/organizers/tags/slug/q", http.StatusOK, `{"id":"t-1","name":"Q","slug":"q"}`)
+			api.on(http.MethodGet, "/api/recipes/a", http.StatusOK, recipeBody)
+			api.on(http.MethodGet, "/api/organizers/categories/slug/c", http.StatusOK, `{"id":"c-1","name":"C","slug":"c"}`)
 			api.on(tt.method, tt.path, tt.status, tt.body)
 			cs := connectTools(t, api)
 
@@ -605,9 +618,7 @@ func TestRecipesWrite_BulkTagRejectsUnexpectedOrganizer(t *testing.T) {
 	api.on(http.MethodGet, "/api/organizers/tags/slug/q", http.StatusOK, `[]`)
 	cs := connectTools(t, api)
 
-	if res := callTool(t, cs, "recipes_write", map[string]any{"action": "bulk_tag", "slugs": []string{"a"}, "tags": []string{"q"}}); !res.IsError {
-		t.Error("IsError = false, want a tool error")
-	}
+	requireToolError(t, callTool(t, cs, "recipes_write", map[string]any{"action": "bulk_tag", "slugs": []string{"a"}, "tags": []string{"q"}}), string(errUnreadableWrite))
 	if seen := api.requests(); len(seen) != 1 {
 		t.Errorf("requests = %+v, want only the lookup", seen)
 	}

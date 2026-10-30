@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -173,9 +172,6 @@ func deleteRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, e
 }
 
 func markMade(ctx context.Context, s *session, slug, timestamp string) error {
-	if timestamp == "" {
-		timestamp = s.clock().UTC().Format(time.RFC3339)
-	}
 	_, err := callRecipe(ctx, s, http.MethodPatch, slug, "/last-made", map[string]string{"timestamp": timestamp})
 	return err
 }
@@ -184,7 +180,7 @@ func markMadeAction(ctx context.Context, s *session, in recipesWriteInput) (any,
 	if err := need("mark_made", "slug", in.Slug); err != nil {
 		return nil, err
 	}
-	if err := markMade(ctx, s, in.Slug, in.Timestamp); err != nil {
+	if err := markMade(ctx, s, in.Slug, s.timestampOrNow(in.Timestamp)); err != nil {
 		return nil, err
 	}
 	return ok(nil), nil
@@ -384,6 +380,9 @@ func suggestRecipes(ctx context.Context, s *session, in recipesReadInput) (any, 
 	items := make([]map[string]any, 0, len(response.Items))
 	for _, entry := range response.Items {
 		recipe, _ := entry["recipe"].(map[string]any)
+		if len(recipe) == 0 {
+			continue
+		}
 		suggestion := view.Compact(entry, []string{"missingFoods", "missingTools"})
 		suggestion["recipe"] = view.Compact(recipe, recipeFields)
 		items = append(items, suggestion)
