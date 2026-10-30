@@ -59,6 +59,8 @@ func New(d Deps) (*mcp.Server, error) {
 		addRecipesWrite(srv, d),
 		addHistoryRead(srv, d),
 		addHistoryWrite(srv, d),
+		addMealplansRead(srv, d),
+		addMealplansWrite(srv, d),
 	)
 }
 
