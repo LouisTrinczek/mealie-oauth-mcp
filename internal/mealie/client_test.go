@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -413,6 +414,117 @@ func TestAPIError_DetailShapes(t *testing.T) {
 			}
 			if apiErr.Message != tt.want {
 				t.Errorf("Message = %q, want %q", apiErr.Message, tt.want)
+			}
+		})
+	}
+}
+
+func TestCall_ReturnsRawJSON(t *testing.T) {
+	const payload = `{"a":1,"x":{"y":null}}`
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		respond(w, payload)
+	}))
+
+	got, err := c.Call(context.Background(), secret.Secret{}, http.MethodGet, "/api/x", nil, nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if string(got) != payload {
+		t.Errorf("Call = %s, want %s", got, payload)
+	}
+}
+
+func TestCall_EmptyBodyIsNil(t *testing.T) {
+	for _, status := range []int{http.StatusNoContent, http.StatusOK} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
+
+			got, err := c.Call(context.Background(), secret.Secret{}, http.MethodDelete, "/api/x", nil, nil)
+			if err != nil || got != nil {
+				t.Errorf("status %d: Call = %q, %v; want nil, nil", status, got, err)
+			}
+		})
+	}
+}
+
+func TestCall_ErrorsKeepClassification(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		check  func(error) bool
+	}{
+		{"unauthorized", http.StatusUnauthorized, IsUnauthorized},
+		{"unavailable", http.StatusServiceUnavailable, IsUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+
+			_, err := c.Call(context.Background(), secret.Secret{}, http.MethodPost, "/api/x", nil, nil)
+			if err == nil || !tt.check(err) {
+				t.Errorf("Call error = %v, classification failed", err)
+			}
+		})
+	}
+}
+
+func TestCall_SendsQueryAndBody(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading body: %v", err)
+		}
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/x" || r.URL.Query().Get("perPage") != "20" || string(raw) != `{"name":"x"}` {
+			t.Errorf("got %s %s %q", r.Method, r.URL, raw)
+		}
+		respond(w, `{}`)
+	}))
+
+	_, err := c.Call(context.Background(), secret.Secret{}, http.MethodPatch, "/api/x", url.Values{"perPage": {"20"}}, map[string]any{"name": "x"})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+}
+
+func redirectingHandler(status int, sources, targets *atomic.Int32) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/target" {
+			targets.Add(1)
+			respond(w, `{}`)
+			return
+		}
+		sources.Add(1)
+		http.Redirect(w, r, "/api/target", status)
+	}
+}
+
+func TestCall_RefusesRedirects(t *testing.T) {
+	const wantMessage = "Mealie redirected the request. Check that MEALIE_URL points directly at Mealie."
+	for _, tc := range []struct {
+		method string
+		status int
+	}{
+		{http.MethodGet, http.StatusFound},
+		{http.MethodPost, http.StatusTemporaryRedirect},
+	} {
+		t.Run(fmt.Sprintf("%s %d", tc.method, tc.status), func(t *testing.T) {
+			var sources, targets atomic.Int32
+			c := newTestClient(t, redirectingHandler(tc.status, &sources, &targets))
+
+			_, err := c.Call(context.Background(), secret.FromString("tok"), tc.method, "/api/source", nil, map[string]string{"a": "b"})
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.Status != tc.status || apiErr.Message != wantMessage {
+				t.Fatalf("err = %v, want *APIError %d %q", err, tc.status, wantMessage)
+			}
+			if IsUnavailable(err) {
+				t.Error("a redirect is classified as unavailable")
+			}
+			if sources.Load() != 1 || targets.Load() != 0 {
+				t.Errorf("source hits = %d, target hits = %d, want 1 and 0", sources.Load(), targets.Load())
 			}
 		})
 	}

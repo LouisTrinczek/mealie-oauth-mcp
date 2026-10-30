@@ -11,7 +11,8 @@
             "email": "it-user@example.com",
             "email_verified": true,
             "preferred_username": "ituser",
-            "name": "IT User"
+            "name": "IT User",
+            "groups": ["mealie-admins"]
           }
         }
       ]

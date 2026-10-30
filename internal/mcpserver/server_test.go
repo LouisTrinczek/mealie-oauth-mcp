@@ -3,9 +3,11 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -76,6 +78,13 @@ func (f *fakeMealie) Self(_ context.Context, tok secret.Secret) (mealie.User, er
 	return f.user, f.err
 }
 
+func (f *fakeMealie) Call(_ context.Context, tok secret.Secret, _, _ string, _ url.Values, _ any) (json.RawMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tokens = append(f.tokens, tok.Reveal())
+	return nil, f.err
+}
+
 func (f *fakeMealie) seenTokens() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -106,7 +115,7 @@ func stubVerifier(_ context.Context, tok string, _ *http.Request) (*auth.TokenIn
 
 func connectOverHTTP(t *testing.T, d Deps) *mcp.ClientSession {
 	t.Helper()
-	srv := New(d)
+	srv := newServer(t, d)
 	handler := auth.RequireBearerToken(stubVerifier, nil)(
 		mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil),
 	)
@@ -122,12 +131,21 @@ func connectOverHTTP(t *testing.T, d Deps) *mcp.ClientSession {
 func connectInMemory(t *testing.T, d Deps) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := New(d).Connect(t.Context(), serverTransport, nil)
+	serverSession, err := newServer(t, d).Connect(t.Context(), serverTransport, nil)
 	if err != nil {
 		t.Fatalf("server Connect: %v", err)
 	}
 	t.Cleanup(func() { _ = serverSession.Close() })
 	return connect(t, clientTransport)
+}
+
+func newServer(t *testing.T, d Deps) *mcp.Server {
+	t.Helper()
+	srv, err := New(d)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return srv
 }
 
 func connect(t *testing.T, transport mcp.Transport) *mcp.ClientSession {
@@ -143,11 +161,7 @@ func connect(t *testing.T, transport mcp.Transport) *mcp.ClientSession {
 
 func callWhoami(t *testing.T, cs *mcp.ClientSession) *mcp.CallToolResult {
 	t.Helper()
-	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "whoami"})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
-	return res
+	return callTool(t, cs, "whoami", nil)
 }
 
 func resultText(t *testing.T, res *mcp.CallToolResult) string {
@@ -286,34 +300,91 @@ func TestWhoami_WithoutTokenInfoEndsSession(t *testing.T) {
 	requireToolError(t, callWhoami(t, cs), "Your Mealie session ended. Reconnect this app to log in again.")
 }
 
-func TestWhoami_OtherErrorsAreGeneric(t *testing.T) {
-	profile := &fakeMealie{err: &mealie.APIError{Status: http.StatusForbidden, Message: "Bearer eyJhbGciOi.leak.sig"}}
-	cs := connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile})
-
-	res := callWhoami(t, cs)
-	requireToolError(t, res, "Could not read your Mealie profile. Try again.")
-	raw, err := json.Marshal(res)
-	if err != nil {
-		t.Fatalf("marshal result: %v", err)
+func TestWhoami_MapsOtherErrorsWithoutLeaking(t *testing.T) {
+	const leakedDetail = `{"detail":"bad Bearer abc.def"}`
+	tests := []struct {
+		name string
+		run  func(t *testing.T) *mcp.CallToolResult
+		want string
+	}{
+		{
+			"PlainError",
+			func(t *testing.T) *mcp.CallToolResult {
+				profile := &fakeMealie{err: errors.New("dial with Bearer abc.def")}
+				return callWhoami(t, connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile}))
+			},
+			string(errProfileUnreadable),
+		},
+		{
+			"Forbidden",
+			func(t *testing.T) *mcp.CallToolResult {
+				api := newFakeMealie(t)
+				api.on(http.MethodGet, "/api/users/self", http.StatusForbidden, leakedDetail)
+				return callWhoami(t, connectTools(t, api))
+			},
+			"Your Mealie user is not allowed to do this (403): bad [REDACTED].",
+		},
+		{
+			"NotFound",
+			func(t *testing.T) *mcp.CallToolResult {
+				api := newFakeMealie(t)
+				api.on(http.MethodGet, "/api/users/self", http.StatusNotFound, leakedDetail)
+				return callWhoami(t, connectTools(t, api))
+			},
+			"Mealie could not find that (404): bad [REDACTED]. Check the slug or id; search or list to find it.",
+		},
 	}
-	for _, leak := range []string{"eyJ", "Bearer", "403", testMealieToken} {
-		if strings.Contains(string(raw), leak) {
-			t.Errorf("tool result leaks %q", leak)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := tt.run(t)
+
+			requireToolError(t, res, tt.want)
+			raw, err := json.Marshal(res)
+			if err != nil {
+				t.Fatalf("marshal result: %v", err)
+			}
+			for _, leak := range []string{"abc.def", "Bearer", testMealieToken} {
+				if strings.Contains(string(raw), leak) {
+					t.Errorf("tool result leaks %q", leak)
+				}
+			}
+		})
+	}
+}
+
+func TestWhoami_EmptyUserIDIsUnreadable(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/users/self", http.StatusOK, `{"username":"a"}`)
+	cs := connectTools(t, api)
+
+	requireToolError(t, callWhoami(t, cs), string(errProfileUnreadable))
+}
+
+func TestSelf_UndecodableProfileIsUnreadable(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(cs *mcp.ClientSession) *mcp.CallToolResult
+	}{
+		{"whoami", func(cs *mcp.ClientSession) *mcp.CallToolResult { return callWhoami(t, cs) }},
+		{"feedback rate", func(cs *mcp.ClientSession) *mcp.CallToolResult {
+			return callTool(t, cs, "feedback_write", map[string]any{"action": "rate", "slug": "soup", "rating": 3})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := newFakeMealie(t)
+			api.on(http.MethodGet, "/api/users/self", http.StatusOK, `[1]`)
+			cs := connectTools(t, api)
+
+			requireToolError(t, tt.call(cs), string(errProfileUnreadable))
+		})
 	}
 }
 
 func TestWhoami_Annotations(t *testing.T) {
 	cs := connectInMemory(t, Deps{Tokens: &fakeTokens{}, Mealie: &fakeMealie{}})
 
-	res, err := cs.ListTools(t.Context(), nil)
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	if len(res.Tools) != 1 || res.Tools[0].Name != "whoami" {
-		t.Fatalf("tools = %v, want only whoami", res.Tools)
-	}
-	tool := res.Tools[0]
+	tool := findTool(t, cs, "whoami")
 	if tool.Description != "Show which Mealie user this connection acts as, including household and group." {
 		t.Errorf("description = %q", tool.Description)
 	}

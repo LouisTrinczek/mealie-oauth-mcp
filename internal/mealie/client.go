@@ -24,6 +24,7 @@ const (
 	maxMessageRunes  = 200
 	maxValidationMsg = 3
 	redactedMarker   = "[REDACTED]"
+	redirectMessage  = "Mealie redirected the request. Check that MEALIE_URL points directly at Mealie."
 )
 
 var ErrUnavailable = errors.New("mealie unavailable, try again")
@@ -49,13 +50,17 @@ type Client struct {
 func New(baseURL *url.URL, opts Options) *Client {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultTimeout}
+		httpClient = &http.Client{Timeout: defaultTimeout, CheckRedirect: refuseRedirect}
 	}
 	userAgent := opts.UserAgent
 	if userAgent == "" {
 		userAgent = defaultUserAgent
 	}
 	return &Client{baseURL: baseURL, http: httpClient, userAgent: userAgent, backoff: defaultBackoff}
+}
+
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 type APIError struct {
@@ -92,9 +97,20 @@ func redact(s string) string {
 }
 
 func (c *Client) do(ctx context.Context, tok secret.Secret, method, path string, query url.Values, body any, out any) error {
+	raw, err := c.request(ctx, tok, method, path, query, body)
+	if err != nil || out == nil {
+		return err
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("decoding mealie response: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) request(ctx context.Context, tok secret.Secret, method, path string, query url.Values, body any) ([]byte, error) {
 	payload, err := encodeBody(body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	target := c.baseURL.JoinPath(path)
 	target.RawQuery = query.Encode()
@@ -104,14 +120,25 @@ func (c *Client) do(ctx context.Context, tok secret.Secret, method, path string,
 		attempts += len(c.backoff)
 	}
 	for attempt := 0; ; attempt++ {
-		err = c.attempt(ctx, tok, method, target.String(), payload, out)
+		raw, err := c.attempt(ctx, tok, method, target.String(), payload)
 		if err == nil || attempt+1 >= attempts || !IsUnavailable(err) {
-			return err
+			return raw, err
 		}
 		if err := sleep(ctx, c.backoff[attempt]); err != nil {
-			return err
+			return nil, err
 		}
 	}
+}
+
+func (c *Client) Call(ctx context.Context, tok secret.Secret, method, path string, query url.Values, body any) (json.RawMessage, error) {
+	raw, err := c.request(ctx, tok, method, path, query, body)
+	if err != nil {
+		return nil, fmt.Errorf("calling mealie %s %s: %w", method, path, err)
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	return raw, nil
 }
 
 func encodeBody(body any) ([]byte, error) {
@@ -136,10 +163,10 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (c *Client) attempt(ctx context.Context, tok secret.Secret, method, target string, payload []byte, out any) error {
+func (c *Client) attempt(ctx context.Context, tok secret.Secret, method, target string, payload []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("building mealie request: %w", err)
+		return nil, fmt.Errorf("building mealie request: %w", err)
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
@@ -152,27 +179,24 @@ func (c *Client) attempt(ctx context.Context, tok secret.Secret, method, target 
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("calling mealie: %w", err)
+		return nil, fmt.Errorf("calling mealie: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
-		return fmt.Errorf("reading mealie response: %w", err)
+		return nil, fmt.Errorf("reading mealie response: %w", err)
 	}
 	if len(raw) > maxResponseBytes {
-		return fmt.Errorf("mealie response exceeds %d bytes", maxResponseBytes)
+		return nil, fmt.Errorf("mealie response exceeds %d bytes", maxResponseBytes)
 	}
 	if resp.StatusCode >= http.StatusBadRequest {
-		return &APIError{Status: resp.StatusCode, Message: summarize(resp.StatusCode, raw)}
+		return nil, &APIError{Status: resp.StatusCode, Message: summarize(resp.StatusCode, raw)}
 	}
-	if out == nil {
-		return nil
+	if resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, &APIError{Status: resp.StatusCode, Message: redirectMessage}
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("decoding mealie response: %w", err)
-	}
-	return nil
+	return raw, nil
 }
 
 type errorBody struct {

@@ -163,13 +163,15 @@ func TestOpen_AppliesPragmas(t *testing.T) {
 		{"synchronous", "1"},
 	}
 	for _, tt := range tests {
-		var got string
-		if err := s.db.QueryRowContext(t.Context(), "PRAGMA "+tt.pragma).Scan(&got); err != nil {
-			t.Fatalf("PRAGMA %s: %v", tt.pragma, err)
-		}
-		if got != tt.want {
-			t.Errorf("PRAGMA %s = %q, want %q", tt.pragma, got, tt.want)
-		}
+		t.Run(tt.pragma, func(t *testing.T) {
+			var got string
+			if err := s.db.QueryRowContext(t.Context(), "PRAGMA "+tt.pragma).Scan(&got); err != nil {
+				t.Fatalf("PRAGMA %s: %v", tt.pragma, err)
+			}
+			if got != tt.want {
+				t.Errorf("PRAGMA %s = %q, want %q", tt.pragma, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -22,7 +22,10 @@ func TestNativeToken_SendsExactBody(t *testing.T) {
 		if _, ok := r.Header["Authorization"]; ok {
 			t.Error("Authorization header sent")
 		}
-		raw, _ := io.ReadAll(r.Body)
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading body: %v", err)
+		}
 		var got map[string]string
 		if err := json.Unmarshal(raw, &got); err != nil {
 			t.Errorf("body not a JSON string map: %s", raw)
@@ -181,5 +184,43 @@ func TestAuthCalls_WrapMealieErrors(t *testing.T) {
 				t.Fatalf("err = %v, want an APIError wrapped with %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSelf_EmptyBodyFails(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	if _, err := c.Self(context.Background(), secret.FromString("tok")); err == nil {
+		t.Error("Self accepted an empty body, want a decoding error")
+	}
+}
+
+func TestNativeToken_EmptyBodyFails(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tok, err := c.NativeToken(context.Background(), NativeTokenRequest{Code: secret.FromString("the-code")})
+	if err == nil {
+		t.Error("NativeToken accepted an empty body, want a decoding error")
+	}
+	if tok.AccessToken.Reveal() != "" {
+		t.Error("NativeToken returned a token for an empty body")
+	}
+}
+
+func TestRefreshToken_EmptyBodyFails(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tok, err := c.RefreshToken(context.Background(), secret.FromString("tok"))
+	if err == nil {
+		t.Error("RefreshToken accepted an empty body, want a decoding error")
+	}
+	if tok.AccessToken.Reveal() != "" {
+		t.Error("RefreshToken returned a token for an empty body")
 	}
 }

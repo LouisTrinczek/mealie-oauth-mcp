@@ -137,14 +137,7 @@ type flow struct {
 }
 
 func TestFullFlow(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
-	defer cancel()
-	logs := &syncBuffer{}
-	leaks := leakWatch{}
-	t.Cleanup(func() { leaks.check(t, logs.String()) })
-	startServer(ctx, t, logs, leaks)
-	f := newFlow(ctx, t, leaks)
-
+	f := startedFlow(t)
 	steps := []struct {
 		name string
 		run  func(*testing.T)
@@ -165,6 +158,26 @@ func TestFullFlow(t *testing.T) {
 			t.FailNow()
 		}
 	}
+}
+
+func startedFlow(t *testing.T) *flow {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	t.Cleanup(cancel)
+	logs := &syncBuffer{}
+	leaks := leakWatch{}
+	t.Cleanup(func() { leaks.check(t, logs.String()) })
+	startServer(ctx, t, logs, leaks)
+	return newFlow(ctx, t, leaks)
+}
+
+func loggedInSession(t *testing.T) *mcp.ClientSession {
+	t.Helper()
+	f := startedFlow(t)
+	for _, step := range []func(*testing.T){f.fetchMetadata, f.register, f.authorizeToConsent, f.allowConsent, f.exchangeCode} {
+		step(t)
+	}
+	return f.connect(t)
 }
 
 func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWatch) {
@@ -408,7 +421,8 @@ func (f *flow) issuedTokens(t *testing.T, got reply) tokens {
 	return issued
 }
 
-func (f *flow) whoami(t *testing.T) {
+func (f *flow) connect(t *testing.T) *mcp.ClientSession {
+	t.Helper()
 	client := mcp.NewClient(&mcp.Implementation{Name: "integration-test", Version: "1"}, nil)
 	session, err := client.Connect(f.ctx, &mcp.StreamableClientTransport{
 		Endpoint:   resourceURL,
@@ -417,11 +431,16 @@ func (f *flow) whoami(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connecting MCP client: %v", err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		if err := session.Close(); err != nil {
 			t.Errorf("closing MCP session: %v", err)
 		}
-	}()
+	})
+	return session
+}
+
+func (f *flow) whoami(t *testing.T) {
+	session := f.connect(t)
 	listed, err := session.ListTools(f.ctx, nil)
 	if err != nil {
 		t.Fatalf("listing tools: %v", err)

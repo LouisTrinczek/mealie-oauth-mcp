@@ -2,6 +2,11 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/url"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -29,25 +34,48 @@ type TokenSource interface {
 	ReportUnauthorized(ctx context.Context, info *auth.TokenInfo)
 }
 
-type ProfileReader interface {
+type MealieClient interface {
 	Self(ctx context.Context, tok secret.Secret) (mealie.User, error)
+	Call(ctx context.Context, tok secret.Secret, method, path string, query url.Values, body any) (json.RawMessage, error)
 }
 
 type Deps struct {
 	Tokens  TokenSource
-	Mealie  ProfileReader
+	Mealie  MealieClient
+	Clock   func() time.Time
 	Version string
+	Logger  *slog.Logger
 }
 
-func New(d Deps) *mcp.Server {
+func New(d Deps) (*mcp.Server, error) {
+	if d.Logger == nil {
+		d.Logger = slog.New(slog.DiscardHandler)
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: d.Version}, nil)
 	closedWorld := false
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "whoami",
 		Description: "Show which Mealie user this connection acts as, including household and group.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
-	}, whoami{tokens: d.Tokens, mealie: d.Mealie}.handle)
-	return srv
+	}, whoami{deps: d}.handle)
+	return srv, errors.Join(
+		addAccountRead(srv, d),
+		addRecipesRead(srv, d),
+		addRecipesWrite(srv, d),
+		addHistoryRead(srv, d),
+		addHistoryWrite(srv, d),
+		addMealplansRead(srv, d),
+		addMealplansWrite(srv, d),
+		addOrganizersRead(srv, d),
+		addOrganizersWrite(srv, d),
+		addShoppingRead(srv, d),
+		addShoppingWrite(srv, d),
+		addIngredientsRead(srv, d),
+		addIngredientsWrite(srv, d),
+		addFeedbackRead(srv, d),
+		addFeedbackWrite(srv, d),
+		addMealieAPI(srv, d),
+	)
 }
 
 type whoamiOutput struct {
@@ -60,19 +88,17 @@ type whoamiOutput struct {
 }
 
 type whoami struct {
-	tokens TokenSource
-	mealie ProfileReader
+	deps Deps
 }
 
 func (w whoami) handle(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, whoamiOutput, error) {
-	info := tokenInfo(req)
-	tok, err := w.tokens.MealieToken(ctx, info)
+	s, err := openSession(ctx, w.deps, req)
 	if err != nil {
-		return nil, whoamiOutput{}, tokenFailure(err)
+		return nil, whoamiOutput{}, err
 	}
-	user, err := w.mealie.Self(ctx, tok)
+	user, err := s.self(ctx)
 	if err != nil {
-		return nil, whoamiOutput{}, w.profileFailure(ctx, info, err)
+		return nil, whoamiOutput{}, err
 	}
 	return nil, whoamiOutput{
 		Username:  user.Username,
@@ -82,18 +108,6 @@ func (w whoami) handle(ctx context.Context, req *mcp.CallToolRequest, _ struct{}
 		Group:     user.GroupSlug,
 		Admin:     user.Admin,
 	}, nil
-}
-
-func (w whoami) profileFailure(ctx context.Context, info *auth.TokenInfo, err error) error {
-	switch {
-	case mealie.IsUnauthorized(err):
-		w.tokens.ReportUnauthorized(ctx, info)
-		return errSessionEnded
-	case mealie.IsUnavailable(err):
-		return errMealieUnavailable
-	default:
-		return errProfileUnreadable
-	}
 }
 
 func tokenFailure(err error) error {

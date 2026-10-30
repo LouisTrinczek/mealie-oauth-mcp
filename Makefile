@@ -26,6 +26,8 @@ fuzz:
 	go test -run='^$$' -fuzz='^FuzzMatchRedirectURI$$' -fuzztime=10s ./internal/oauth/
 	go test -run='^$$' -fuzz='^FuzzValidateRedirectURI$$' -fuzztime=10s ./internal/oauth/
 	go test -run='^$$' -fuzz='^FuzzCIMDParse$$' -fuzztime=10s ./internal/oauth/
+	go test -run='^$$' -fuzz='^FuzzCheck$$' -fuzztime=10s ./internal/allowlist/
+	go test -run='^$$' -fuzz='^FuzzPathOf$$' -fuzztime=10s ./internal/mealie/
 
 test-integration:
 	$(INTEGRATION_COMPOSE) run --rm --build it; status=$$?; $(INTEGRATION_COMPOSE) down -v; exit $$status

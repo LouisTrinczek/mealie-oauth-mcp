@@ -917,8 +917,10 @@ func TestDisplayHost(t *testing.T) {
 		"http://[::1":                "",
 	}
 	for raw, want := range tests {
-		if got := displayHost(raw); got != want {
-			t.Errorf("displayHost(%q) = %q, want %q", raw, got, want)
-		}
+		t.Run(raw, func(t *testing.T) {
+			if got := displayHost(raw); got != want {
+				t.Errorf("displayHost(%q) = %q, want %q", raw, got, want)
+			}
+		})
 	}
 }

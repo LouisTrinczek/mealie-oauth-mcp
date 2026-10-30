@@ -59,6 +59,10 @@ type App struct {
 }
 
 func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) (*App, error) {
+	return newApp(ctx, cfg, logger, version, mcpserver.New)
+}
+
+func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string, buildTools func(mcpserver.Deps) (*mcp.Server, error)) (*App, error) {
 	keyring, err := tokencrypt.NewKeyring(cfg.EncryptionKeys)
 	if err != nil {
 		return nil, fmt.Errorf("loading encryption keys: %w", err)
@@ -81,7 +85,13 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version s
 		return nil, fmt.Errorf("opening store: %w", err)
 	}
 	a := &App{cfg: cfg, logger: logger, store: st, mealie: client, now: time.Now, shutdownGrace: shutdownGracePeriod}
-	a.handler = a.routes(keyring, version)
+	auditLog := audit.New(logger)
+	sessions := a.sessionManager(keyring, auditLog)
+	tools, err := buildTools(mcpserver.Deps{Tokens: sessions, Mealie: client, Clock: a.now, Version: version, Logger: logger})
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("building MCP tools: %w", err), st.Close())
+	}
+	a.handler = a.routes(keyring, auditLog, sessions, tools)
 	return a, nil
 }
 
@@ -99,8 +109,19 @@ func (a *App) Close() error {
 	return a.store.Close()
 }
 
-func (a *App) routes(keyring *tokencrypt.Keyring, version string) http.Handler {
-	auditLog := audit.New(a.logger)
+func (a *App) sessionManager(keyring *tokencrypt.Keyring, auditLog *audit.Logger) *session.Manager {
+	return session.New(session.Deps{
+		Store:    a.store,
+		Keyring:  keyring,
+		Mealie:   a.mealie,
+		Audit:    auditLog,
+		Logger:   a.logger,
+		Resource: a.cfg.ResourceURL(),
+		Now:      a.now,
+	})
+}
+
+func (a *App) routes(keyring *tokencrypt.Keyring, auditLog *audit.Logger, sessions *session.Manager, tools *mcp.Server) http.Handler {
 	oauthServer := oauth.New(a.oauthConfig(), oauth.Deps{
 		Store:   a.store,
 		Keyring: keyring,
@@ -110,16 +131,6 @@ func (a *App) routes(keyring *tokencrypt.Keyring, version string) http.Handler {
 		Logger:  a.logger,
 		Now:     a.now,
 	})
-	sessions := session.New(session.Deps{
-		Store:    a.store,
-		Keyring:  keyring,
-		Mealie:   a.mealie,
-		Audit:    auditLog,
-		Logger:   a.logger,
-		Resource: a.cfg.ResourceURL(),
-		Now:      a.now,
-	})
-	tools := mcpserver.New(mcpserver.Deps{Tokens: sessions, Mealie: a.mealie, Version: version})
 
 	mux := http.NewServeMux()
 	oauthServer.Routes(mux)
