@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -198,14 +199,18 @@ func TestEncode_MarshalError(t *testing.T) {
 
 func TestPerPageAndPageNumber(t *testing.T) {
 	for in, want := range map[int]int{0: 20, -1: 20, 50: 50, 500: 100} {
-		if got := PerPage(in); got != want {
-			t.Errorf("PerPage(%d) = %d, want %d", in, got, want)
-		}
+		t.Run(strconv.Itoa(in), func(t *testing.T) {
+			if got := PerPage(in); got != want {
+				t.Errorf("PerPage(%d) = %d, want %d", in, got, want)
+			}
+		})
 	}
 	for in, want := range map[int]int{0: 1, 3: 3} {
-		if got := PageNumber(in); got != want {
-			t.Errorf("PageNumber(%d) = %d, want %d", in, got, want)
-		}
+		t.Run(strconv.Itoa(in), func(t *testing.T) {
+			if got := PageNumber(in); got != want {
+				t.Errorf("PageNumber(%d) = %d, want %d", in, got, want)
+			}
+		})
 	}
 }
 

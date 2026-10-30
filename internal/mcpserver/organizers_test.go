@@ -372,13 +372,15 @@ func TestOrganizersWrite_MergeNeedsBothIDs(t *testing.T) {
 		{map[string]any{"action": "merge", "kind": "tags", "fromId": "a"}, `Action "merge" needs toId.`},
 	}
 	for _, tt := range tests {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(tt.want, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "organizers_write", tt.args)
-		if got := resultText(t, res); !res.IsError || got != tt.want {
-			t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
-		}
+			res := callTool(t, cs, "organizers_write", tt.args)
+			if got := resultText(t, res); !res.IsError || got != tt.want {
+				t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
+			}
+		})
 	}
 }
 
@@ -386,13 +388,15 @@ func TestOrganizers_KindEnum(t *testing.T) {
 	cs := connectTools(t, newFakeMealie(t))
 
 	for _, name := range []string{"organizers_read", "organizers_write"} {
-		schema := schemaJSON(t, findTool(t, cs, name).InputSchema)
-		kind := schema["properties"].(map[string]any)["kind"].(map[string]any)
-		if want := []any{"cookbooks", "categories", "tags", "tools"}; !reflect.DeepEqual(kind["enum"], want) {
-			t.Errorf("%s kind enum = %v, want %v", name, kind["enum"], want)
-		}
-		if want := []any{"action", "kind"}; !reflect.DeepEqual(schema["required"], want) {
-			t.Errorf("%s required = %v, want %v", name, schema["required"], want)
-		}
+		t.Run(name, func(t *testing.T) {
+			schema := schemaJSON(t, findTool(t, cs, name).InputSchema)
+			kind := schema["properties"].(map[string]any)["kind"].(map[string]any)
+			if want := []any{"cookbooks", "categories", "tags", "tools"}; !reflect.DeepEqual(kind["enum"], want) {
+				t.Errorf("%s kind enum = %v, want %v", name, kind["enum"], want)
+			}
+			if want := []any{"action", "kind"}; !reflect.DeepEqual(schema["required"], want) {
+				t.Errorf("%s required = %v, want %v", name, schema["required"], want)
+			}
+		})
 	}
 }

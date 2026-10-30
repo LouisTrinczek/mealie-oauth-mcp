@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 )
 
@@ -64,14 +65,16 @@ func TestFeedbackRead_Failures(t *testing.T) {
 
 func TestFeedbackRead_RatingsMissingKey(t *testing.T) {
 	for _, body := range []string{`{}`, `{"ratings":null}`} {
-		api := newFakeMealie(t)
-		api.on(http.MethodGet, "/api/users/self/ratings", http.StatusOK, body)
-		cs := connectTools(t, api)
+		t.Run(body, func(t *testing.T) {
+			api := newFakeMealie(t)
+			api.on(http.MethodGet, "/api/users/self/ratings", http.StatusOK, body)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "feedback_read", map[string]any{"action": "ratings"})
-		if got := resultText(t, res); res.IsError || got != `{"items":[],"total":0}` {
-			t.Errorf("body %s: result = %s (error %v), want {\"items\":[],\"total\":0}", body, got, res.IsError)
-		}
+			res := callTool(t, cs, "feedback_read", map[string]any{"action": "ratings"})
+			if got := resultText(t, res); res.IsError || got != `{"items":[],"total":0}` {
+				t.Errorf("body %s: result = %s (error %v), want {\"items\":[],\"total\":0}", body, got, res.IsError)
+			}
+		})
 	}
 }
 
@@ -159,8 +162,10 @@ func TestFeedbackWrite_RatingRange(t *testing.T) {
 	cs := connectTools(t, api)
 
 	for _, rating := range []float64{-1, 5.5} {
-		res := callTool(t, cs, "feedback_write", map[string]any{"action": "rate", "slug": "soup", "rating": rating})
-		requireToolError(t, res, "rating must be between 0 and 5.")
+		t.Run(strconv.FormatFloat(rating, 'f', -1, 64), func(t *testing.T) {
+			res := callTool(t, cs, "feedback_write", map[string]any{"action": "rate", "slug": "soup", "rating": rating})
+			requireToolError(t, res, "rating must be between 0 and 5.")
+		})
 	}
 	if seen := api.requests(); len(seen) != 0 {
 		t.Errorf("requests = %+v, want none", seen)

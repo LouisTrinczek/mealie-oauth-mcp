@@ -70,16 +70,18 @@ func TestMealplansRead_ListRejectsBadDates(t *testing.T) {
 		{map[string]any{"action": "list", "end": "31/10/2026"}, "end must be YYYY-MM-DD."},
 	}
 	for _, tt := range tests {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(tt.want, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "mealplans_read", tt.args)
-		if got := resultText(t, res); !res.IsError || got != tt.want {
-			t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
-		}
-		if seen := api.requests(); len(seen) != 0 {
-			t.Errorf("requests = %+v, want none", seen)
-		}
+			res := callTool(t, cs, "mealplans_read", tt.args)
+			if got := resultText(t, res); !res.IsError || got != tt.want {
+				t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
+			}
+			if seen := api.requests(); len(seen) != 0 {
+				t.Errorf("requests = %+v, want none", seen)
+			}
+		})
 	}
 }
 
@@ -414,13 +416,15 @@ func TestMealplansWrite_RandomValidation(t *testing.T) {
 		{map[string]any{"action": "random", "date": "x"}, "date must be YYYY-MM-DD."},
 	}
 	for _, tt := range tests {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(tt.want, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "mealplans_write", tt.args)
-		if got := resultText(t, res); !res.IsError || got != tt.want {
-			t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
-		}
+			res := callTool(t, cs, "mealplans_write", tt.args)
+			if got := resultText(t, res); !res.IsError || got != tt.want {
+				t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
+			}
+		})
 	}
 }
 

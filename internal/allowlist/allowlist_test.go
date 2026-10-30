@@ -63,32 +63,38 @@ func assertDenied(t *testing.T, method, path, want string) {
 
 func TestCheck_AllowsEveryRule(t *testing.T) {
 	for sample := range ruleSamples() {
-		method, path, _ := strings.Cut(sample, " ")
-		got, err := Check(method, path)
-		if err != nil || got != path {
-			t.Errorf("Check(%q, %q) = %q, %v; want %q", method, path, got, err, path)
-		}
+		t.Run(sample, func(t *testing.T) {
+			method, path, _ := strings.Cut(sample, " ")
+			got, err := Check(method, path)
+			if err != nil || got != path {
+				t.Errorf("Check(%q, %q) = %q, %v; want %q", method, path, got, err, path)
+			}
+		})
 	}
 }
 
 func TestCheck_MethodMustBeExact(t *testing.T) {
 	for _, method := range []string{"get", "Get", "PO\u017fT"} {
-		got, err := Check(method, "/api/recipes")
-		var denied *DeniedError
-		if !errors.As(err, &denied) || got != "" {
-			t.Errorf("Check(%q, \"/api/recipes\") = %q, %v; want *DeniedError", method, got, err)
-		}
+		t.Run(method, func(t *testing.T) {
+			got, err := Check(method, "/api/recipes")
+			var denied *DeniedError
+			if !errors.As(err, &denied) || got != "" {
+				t.Errorf("Check(%q, \"/api/recipes\") = %q, %v; want *DeniedError", method, got, err)
+			}
+		})
 	}
 }
 
 func TestCheck_ReservedWordsAtSecondWildcard(t *testing.T) {
 	const prefix = "/api/households/shopping/lists/abc/recipe/"
 	for _, word := range reservedWords {
-		got, err := Check("POST", prefix+word)
-		var denied *DeniedError
-		if !errors.As(err, &denied) || got != "" {
-			t.Errorf("Check(POST, %q) = %q, %v; want *DeniedError", prefix+word, got, err)
-		}
+		t.Run(word, func(t *testing.T) {
+			got, err := Check("POST", prefix+word)
+			var denied *DeniedError
+			if !errors.As(err, &denied) || got != "" {
+				t.Errorf("Check(POST, %q) = %q, %v; want *DeniedError", prefix+word, got, err)
+			}
+		})
 	}
 	const id = "0b7f6e2c-5d1a-4c3b-9a8e-1f2d3c4b5a69"
 	if got, err := Check("POST", prefix+id); err != nil || got != prefix+id {
@@ -106,7 +112,9 @@ func TestCheck_DeniesOtherMethods(t *testing.T) {
 		{"HEAD", "/api/users/self", "HEAD /api/users/self" + notAllowedSuffix},
 	}
 	for _, tt := range tests {
-		assertDenied(t, tt.method, tt.path, tt.want)
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			assertDenied(t, tt.method, tt.path, tt.want)
+		})
 	}
 }
 
@@ -137,9 +145,11 @@ func TestCheck_DeniesOutOfScope(t *testing.T) {
 		"/api/recipes/create/image",
 	}
 	for _, path := range paths {
-		for _, method := range everyMethod {
-			assertDenied(t, method, path, method+" "+path+notAllowedSuffix)
-		}
+		t.Run(path, func(t *testing.T) {
+			for _, method := range everyMethod {
+				assertDenied(t, method, path, method+" "+path+notAllowedSuffix)
+			}
+		})
 	}
 }
 
@@ -169,25 +179,31 @@ func TestCheck_ReservedWordsStillMatchLiteralRows(t *testing.T) {
 		{"POST", "/api/recipes/create/url"},
 	}
 	for _, tt := range tests {
-		got, err := Check(tt.method, tt.path)
-		if err != nil || got != tt.path {
-			t.Errorf("Check(%q, %q) = %q, %v; want %q", tt.method, tt.path, got, err, tt.path)
-		}
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			got, err := Check(tt.method, tt.path)
+			if err != nil || got != tt.path {
+				t.Errorf("Check(%q, %q) = %q, %v; want %q", tt.method, tt.path, got, err, tt.path)
+			}
+		})
 	}
 }
 
 func TestCheck_BypassAttempts(t *testing.T) {
 	for _, tt := range bypassAttempts {
-		assertDenied(t, "GET", tt.path, tt.want)
+		t.Run(tt.path, func(t *testing.T) {
+			assertDenied(t, "GET", tt.path, tt.want)
+		})
 	}
 }
 
 func TestCheck_CanonicalEscaping(t *testing.T) {
 	for _, path := range []string{"/api/recipes/p%C3%A2te", "/api/recipes/pâte"} {
-		got, err := Check("GET", path)
-		if err != nil || got != "/api/recipes/p%C3%A2te" {
-			t.Errorf(`Check("GET", %q) = %q, %v; want "/api/recipes/p%%C3%%A2te"`, path, got, err)
-		}
+		t.Run(path, func(t *testing.T) {
+			got, err := Check("GET", path)
+			if err != nil || got != "/api/recipes/p%C3%A2te" {
+				t.Errorf(`Check("GET", %q) = %q, %v; want "/api/recipes/p%%C3%%A2te"`, path, got, err)
+			}
+		})
 	}
 }
 

@@ -142,7 +142,7 @@ func TestSession_MapsClientErrors(t *testing.T) {
 		{"BadSegment", &mealie.SegmentError{Value: "a/b"}, `"a/b" is not a valid slug or id.`, `"a/b" is not a valid slug or id.`},
 		{"Unavailable", mealie.ErrUnavailable, "Mealie is unavailable right now. Try again shortly.", "Mealie is unavailable right now. Try again shortly."},
 		{"BadRequest", &mealie.APIError{Status: http.StatusBadRequest, Message: "msg"}, "Mealie rejected the request (400): msg. Fix the arguments and try again.", "Mealie rejected the request (400): msg. Fix the arguments and try again."},
-		{"Other", errors.New("transport failed: Bearer " + testMealieToken), "Mealie request failed.", "Could not read your Mealie profile. Try again."},
+		{"Other", errors.New("transport failed: Bearer " + testMealieToken), "Mealie request failed. Try again; if it keeps failing, check that Mealie is reachable from this server.", "Could not read your Mealie profile. Try again."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

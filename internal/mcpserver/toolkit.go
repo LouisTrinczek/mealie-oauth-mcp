@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	errRequestFailed    toolFailure = "Mealie request failed."
+	errRequestFailed    toolFailure = "Mealie request failed. Try again; if it keeps failing, check that Mealie is reachable from this server."
 	errWriteUnconfirmed toolFailure = "Mealie did not confirm the change in time, so it may or may not have been saved. Check with a read or list action before trying again."
 	errUnreadableRead   toolFailure = "Mealie sent a response this server could not read. Try again; if it keeps happening, this Mealie version may not be supported."
 	errUnreadableWrite  toolFailure = "Mealie sent a response this server could not read, so the change may or may not have been saved. Check with a read or list action before trying again."

@@ -53,13 +53,15 @@ func TestIngredientsRead_ListPaths(t *testing.T) {
 
 func TestIngredientsRead_SearchOnlyForFoods(t *testing.T) {
 	for _, kind := range []string{"units", "labels"} {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(kind, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "ingredients_read", map[string]any{"action": "list", "kind": kind, "search": "x"})
-		if got, want := resultText(t, res), "search does not apply to "+kind+"."; !res.IsError || got != want || len(api.requests()) != 0 {
-			t.Errorf("result = %q (error %v), want %q and no request", got, res.IsError, want)
-		}
+			res := callTool(t, cs, "ingredients_read", map[string]any{"action": "list", "kind": kind, "search": "x"})
+			if got, want := resultText(t, res), "search does not apply to "+kind+"."; !res.IsError || got != want || len(api.requests()) != 0 {
+				t.Errorf("result = %q (error %v), want %q and no request", got, res.IsError, want)
+			}
+		})
 	}
 }
 
@@ -92,14 +94,16 @@ func TestIngredientsRead_GetFailures(t *testing.T) {
 		{"a/b", `"a/b" is not a valid slug or id.`},
 	}
 	for _, tt := range tests {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(tt.want, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "ingredients_read", map[string]any{"action": "get", "kind": "foods", "id": tt.id})
-		requireToolError(t, res, tt.want)
-		if len(api.requests()) != 0 {
-			t.Errorf("requests = %+v, want none", api.requests())
-		}
+			res := callTool(t, cs, "ingredients_read", map[string]any{"action": "get", "kind": "foods", "id": tt.id})
+			requireToolError(t, res, tt.want)
+			if len(api.requests()) != 0 {
+				t.Errorf("requests = %+v, want none", api.requests())
+			}
+		})
 	}
 }
 
@@ -159,14 +163,16 @@ func TestIngredientsRead_ParseWithoutKind(t *testing.T) {
 
 func TestIngredientsRead_ListNeedsKind(t *testing.T) {
 	for _, action := range []string{"list", "get", "empty"} {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(action, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "ingredients_read", map[string]any{"action": action, "id": "f-1"})
-		requireToolError(t, res, `Action "`+action+`" needs kind.`)
-		if len(api.requests()) != 0 {
-			t.Errorf("%s: requests = %+v, want none", action, api.requests())
-		}
+			res := callTool(t, cs, "ingredients_read", map[string]any{"action": action, "id": "f-1"})
+			requireToolError(t, res, `Action "`+action+`" needs kind.`)
+			if len(api.requests()) != 0 {
+				t.Errorf("%s: requests = %+v, want none", action, api.requests())
+			}
+		})
 	}
 }
 
@@ -364,14 +370,16 @@ func TestIngredientsWrite_UpdateEveryKind(t *testing.T) {
 
 func TestIngredientsWrite_UpdateAndDeleteRejectBadIDs(t *testing.T) {
 	for _, action := range []string{"update", "delete"} {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(action, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		res := callTool(t, cs, "ingredients_write", map[string]any{"action": action, "kind": "foods", "id": "a/b", "fields": map[string]any{"name": "x"}})
-		requireToolError(t, res, `"a/b" is not a valid slug or id.`)
-		if len(api.requests()) != 0 {
-			t.Errorf("%s: requests = %+v, want none", action, api.requests())
-		}
+			res := callTool(t, cs, "ingredients_write", map[string]any{"action": action, "kind": "foods", "id": "a/b", "fields": map[string]any{"name": "x"}})
+			requireToolError(t, res, `"a/b" is not a valid slug or id.`)
+			if len(api.requests()) != 0 {
+				t.Errorf("%s: requests = %+v, want none", action, api.requests())
+			}
+		})
 	}
 }
 
@@ -445,15 +453,17 @@ func TestIngredientsWrite_MergeFailures(t *testing.T) {
 		{map[string]any{"fromId": "a"}, `Action "merge" needs toId.`},
 	}
 	for _, tt := range tests {
-		api := newFakeMealie(t)
-		cs := connectTools(t, api)
+		t.Run(tt.want, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
 
-		tt.args["action"], tt.args["kind"] = "merge", "foods"
-		res := callTool(t, cs, "ingredients_write", tt.args)
-		requireToolError(t, res, tt.want)
-		if len(api.requests()) != 0 {
-			t.Errorf("args %v: requests = %+v, want none", tt.args, api.requests())
-		}
+			tt.args["action"], tt.args["kind"] = "merge", "foods"
+			res := callTool(t, cs, "ingredients_write", tt.args)
+			requireToolError(t, res, tt.want)
+			if len(api.requests()) != 0 {
+				t.Errorf("args %v: requests = %+v, want none", tt.args, api.requests())
+			}
+		})
 	}
 }
 
@@ -461,17 +471,19 @@ func TestIngredients_KindEnum(t *testing.T) {
 	cs := connectTools(t, newFakeMealie(t))
 
 	for _, name := range []string{"ingredients_read", "ingredients_write"} {
-		schema := schemaJSON(t, findTool(t, cs, name).InputSchema)
-		kind := schema["properties"].(map[string]any)["kind"].(map[string]any)
-		if want := []any{"foods", "units", "labels"}; !reflect.DeepEqual(kind["enum"], want) {
-			t.Errorf("%s kind enum = %v, want %v", name, kind["enum"], want)
-		}
-		want := []any{"action", "kind"}
-		if name == "ingredients_read" {
-			want = []any{"action"}
-		}
-		if !reflect.DeepEqual(schema["required"], want) {
-			t.Errorf("%s required = %v, want %v", name, schema["required"], want)
-		}
+		t.Run(name, func(t *testing.T) {
+			schema := schemaJSON(t, findTool(t, cs, name).InputSchema)
+			kind := schema["properties"].(map[string]any)["kind"].(map[string]any)
+			if want := []any{"foods", "units", "labels"}; !reflect.DeepEqual(kind["enum"], want) {
+				t.Errorf("%s kind enum = %v, want %v", name, kind["enum"], want)
+			}
+			want := []any{"action", "kind"}
+			if name == "ingredients_read" {
+				want = []any{"action"}
+			}
+			if !reflect.DeepEqual(schema["required"], want) {
+				t.Errorf("%s required = %v, want %v", name, schema["required"], want)
+			}
+		})
 	}
 }

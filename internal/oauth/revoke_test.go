@@ -22,7 +22,9 @@ func TestRevoke_UnknownTokenStill200(t *testing.T) {
 	env := newTestServer(t)
 
 	for _, tok := range []string{"mmcp_at_unknown", "mmcp_rt_unknown", "not-a-token", ""} {
-		env.postRevoke(t, url.Values{"token": {tok}})
+		t.Run(tok, func(t *testing.T) {
+			env.postRevoke(t, url.Values{"token": {tok}})
+		})
 	}
 }
 

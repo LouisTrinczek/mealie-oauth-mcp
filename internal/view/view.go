@@ -53,7 +53,7 @@ func Trim(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("decoding object: %w", err)
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("decoding object: unexpected data after top-level value")
+		return nil, errors.New("decoding object: unexpected data after top-level value")
 	}
 	return marshal(trimmed(value))
 }
@@ -178,7 +178,7 @@ func label(object map[string]any) any {
 
 func Page(raw json.RawMessage, fields []string) (map[string]any, error) {
 	if isJSONNull(raw) {
-		return nil, fmt.Errorf("decoding page: Mealie returned null")
+		return nil, errors.New("decoding page: Mealie returned null")
 	}
 	var page struct {
 		Page       int   `json:"page"`
@@ -206,7 +206,7 @@ func Page(raw json.RawMessage, fields []string) (map[string]any, error) {
 
 func List(raw json.RawMessage, fields []string) (map[string]any, error) {
 	if isJSONNull(raw) {
-		return nil, fmt.Errorf("decoding list: Mealie returned null")
+		return nil, errors.New("decoding list: Mealie returned null")
 	}
 	var list []any
 	if err := json.Unmarshal(raw, &list); err != nil {
