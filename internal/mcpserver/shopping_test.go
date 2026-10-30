@@ -135,7 +135,7 @@ func TestShoppingWrite_UpdateItemsMergesAndPutsOnce(t *testing.T) {
 	if got := resultText(t, res); res.IsError || got != shoppingListView {
 		t.Errorf("result = %s (error %v), want %s", got, res.IsError, shoppingListView)
 	}
-	wantBody := `[{"checked":true,"extras":{"x":1},"id":"i-1","note":"d1","position":4,"shoppingListId":"l-1"},` +
+	wantBody := `[{"checked":true,"extras":{"x":1},"id":"i-1","note":"old","position":4,"shoppingListId":"l-1"},` +
 		`{"checked":true,"foodId":"f","id":"i-2","labelId":"lb","note":"n","position":5,"quantity":3,"shoppingListId":"l-1","unitId":"u"}]`
 	var puts []seenRequest
 	for _, req := range api.requests() {
@@ -145,6 +145,21 @@ func TestShoppingWrite_UpdateItemsMergesAndPutsOnce(t *testing.T) {
 	}
 	if len(puts) != 1 || puts[0].Path != itemsBase || puts[0].Body != wantBody {
 		t.Errorf("PUTs = %+v, want exactly one to %s with body %s", puts, itemsBase, wantBody)
+	}
+}
+
+func TestShoppingWrite_UpdateItemsIgnoresDisplay(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, itemsBase+"/i-3", http.StatusOK, `{"id":"i-3","shoppingListId":"l-1","note":"","display":"1 cup flour","foodId":"f-1","checked":false}`)
+	api.on(http.MethodPut, itemsBase, http.StatusOK, `{}`)
+	api.on(http.MethodGet, listsBase+"/l-1", http.StatusOK, shoppingListBody)
+	cs := connectTools(t, api)
+
+	callTool(t, cs, "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-3", "checked": true, "display": "1 cup flour"}}})
+	seen := api.requests()
+	wantBody := `[{"checked":true,"display":"1 cup flour","foodId":"f-1","id":"i-3","note":"","shoppingListId":"l-1"}]`
+	if len(seen) != 3 || seen[1].Method != http.MethodPut || seen[1].Body != wantBody {
+		t.Errorf("requests = %+v, want PUT with body %s second", seen, wantBody)
 	}
 }
 

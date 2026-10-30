@@ -36,6 +36,8 @@ type namedItem struct {
 	Name    string `json:"name"`
 	Checked bool   `json:"checked"`
 	Subject string `json:"subject"`
+	Note    string `json:"note"`
+	Display string `json:"display"`
 }
 
 type itemsResult struct {
@@ -199,8 +201,8 @@ func (g *toolGroups) shopForRecipe(t *testing.T) {
 	callOK(t, g.session, "shopping_write", map[string]any{"action": "update_items", "listId": g.listID, "items": []map[string]any{{"id": added.Items[0].ID, "checked": true}}}, nil)
 	var read itemsResult
 	callOK(t, g.session, "shopping_read", map[string]any{"action": "list", "id": g.listID}, &read)
-	if len(read.Items) != 1 || !read.Items[0].Checked {
-		t.Fatalf("shopping list %s items %+v, want one checked item", g.listID, read.Items)
+	if len(read.Items) != 1 || !read.Items[0].Checked || (read.Items[0].Note != "salt" && read.Items[0].Display != "salt") {
+		t.Fatalf("shopping list %s items %+v, want one checked item reading salt", g.listID, read.Items)
 	}
 }
 

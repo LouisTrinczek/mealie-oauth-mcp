@@ -99,7 +99,7 @@ func listView(raw json.RawMessage) (any, error) {
 type shoppingItem struct {
 	ID       string  `json:"id,omitempty" jsonschema:"update_items: item id."`
 	Note     string  `json:"note,omitempty" jsonschema:"Free-text item, e.g. 2 lemons."`
-	Display  string  `json:"display,omitempty" jsonschema:"Item text, saved as the note when note is empty (Mealie derives the shown text itself)."`
+	Display  string  `json:"display,omitempty" jsonschema:"add_items only: item text, saved as the note when note is empty (Mealie derives the shown text itself). update_items ignores it; change note instead."`
 	Quantity float64 `json:"quantity,omitempty" jsonschema:"Quantity of the item."`
 	Checked  *bool   `json:"checked,omitempty" jsonschema:"update_items: true to check the item off, false to uncheck it."`
 	FoodID   string  `json:"foodId,omitempty" jsonschema:"Food id."`
@@ -185,7 +185,7 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 		}
 		body = append(body, newShoppingItem{
 			ShoppingListID: in.ListID,
-			Note:           itemNote(item),
+			Note:           cmp.Or(item.Note, item.Display),
 			Quantity:       item.Quantity,
 			FoodID:         item.FoodID,
 			UnitID:         item.UnitID,
@@ -198,14 +198,10 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 	return fetchListView(ctx, s, listPath)
 }
 
-func itemNote(item shoppingItem) string {
-	return cmp.Or(item.Note, item.Display)
-}
-
 func itemChanges(item shoppingItem) map[string]any {
 	changes := map[string]any{}
 	for key, value := range map[string]string{
-		"note": itemNote(item), "foodId": item.FoodID, "unitId": item.UnitID, "labelId": item.LabelID,
+		"note": item.Note, "foodId": item.FoodID, "unitId": item.UnitID, "labelId": item.LabelID,
 	} {
 		if value != "" {
 			changes[key] = value
