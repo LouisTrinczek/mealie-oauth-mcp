@@ -76,3 +76,9 @@ func TestSecret_Reveal(t *testing.T) {
 		t.Errorf("New().Bytes() = %q", got)
 	}
 }
+
+func TestSecret_String(t *testing.T) {
+	if got := FromString("hunter2").String(); got != redacted {
+		t.Errorf("String() = %q, want %q", got, redacted)
+	}
+}

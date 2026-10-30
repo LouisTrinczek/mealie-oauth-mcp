@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"embed"
-	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -25,6 +24,11 @@ const (
 
 //go:embed templates/*.html
 var templateFiles embed.FS
+
+var (
+	consentTemplate = template.Must(template.ParseFS(templateFiles, "templates/consent.html"))
+	errorTemplate   = template.Must(template.ParseFS(templateFiles, "templates/error.html"))
+)
 
 type Config struct {
 	Issuer         string
@@ -90,15 +94,7 @@ type Server struct {
 	errorPage *template.Template
 }
 
-func New(cfg Config, d Deps) (*Server, error) {
-	consent, err := template.ParseFS(templateFiles, "templates/consent.html")
-	if err != nil {
-		return nil, fmt.Errorf("parsing consent template: %w", err)
-	}
-	errorPage, err := template.ParseFS(templateFiles, "templates/error.html")
-	if err != nil {
-		return nil, fmt.Errorf("parsing error template: %w", err)
-	}
+func New(cfg Config, d Deps) *Server {
 	now := d.Now
 	if now == nil {
 		now = time.Now
@@ -113,9 +109,9 @@ func New(cfg Config, d Deps) (*Server, error) {
 		logger:    d.Logger,
 		now:       now,
 		rateLimit: httpx.RateLimit(authRequestsPerMinute, authRequestBurst, cfg.TrustedProxies),
-		consent:   consent,
-		errorPage: errorPage,
-	}, nil
+		consent:   consentTemplate,
+		errorPage: errorTemplate,
+	}
 }
 
 func (s *Server) Routes(mux *http.ServeMux) {

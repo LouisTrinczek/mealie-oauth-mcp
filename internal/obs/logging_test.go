@@ -121,3 +121,16 @@ func TestAccessLog_DefaultStatus(t *testing.T) {
 		t.Fatalf("log missing status 200: %s", buf.String())
 	}
 }
+
+func TestAccessLog_ExposesUnderlyingWriter(t *testing.T) {
+	handler := AccessLog(NewLogger(&bytes.Buffer{}, "json", slog.LevelInfo))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Errorf("Flush through access log: %v", err)
+		}
+	}))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+	if !recorder.Flushed {
+		t.Fatal("flush did not reach the underlying writer")
+	}
+}

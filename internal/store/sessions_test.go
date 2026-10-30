@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -122,5 +123,48 @@ func TestRevokeSession_DeletesTokens(t *testing.T) {
 	}
 	if _, err := s.GetRefreshToken(t.Context(), []byte("rt-s2")); err != nil {
 		t.Fatalf("other session refresh token: %v", err)
+	}
+}
+
+func TestCreateSessionWithCode_DuplicateSessionRejected(t *testing.T) {
+	s := newTestStore(t)
+	seedSession(t, s, testSession("s1"), "code-1")
+
+	err := s.CreateSessionWithCode(t.Context(), testSession("s1"), testAuthCode("code-2", "s1", baseTime.Add(time.Minute)))
+	if err == nil || !strings.Contains(err.Error(), "creating session") {
+		t.Fatalf("err = %v, want a creating session error", err)
+	}
+}
+
+func TestRevokeSession_WriteFailures(t *testing.T) {
+	tests := []struct {
+		event string
+		want  string
+	}{
+		{"UPDATE sessions", "revoking session"},
+		{"DELETE access_tokens", "deleting session access tokens"},
+		{"DELETE refresh_tokens", "deleting session refresh tokens"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.event, func(t *testing.T) {
+			s := newTestStore(t)
+			seedSession(t, s, testSession("s1"), "code-1")
+			err := s.IssueTokens(t.Context(),
+				AccessToken{Hash: []byte("at-1"), SessionID: "s1", ExpiresAt: baseTime.Add(time.Hour)},
+				RefreshToken{Hash: []byte("rt-1"), SessionID: "s1", ExpiresAt: baseTime.Add(24 * time.Hour)})
+			if err != nil {
+				t.Fatalf("IssueTokens: %v", err)
+			}
+			failWrites(t, s, tt.event)
+
+			err = s.RevokeSession(t.Context(), "s1", baseTime)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want %q", err, tt.want)
+			}
+			session, getErr := s.GetSession(t.Context(), "s1")
+			if getErr != nil || !session.RevokedAt.IsZero() {
+				t.Fatalf("session = %+v, %v; want the revocation rolled back", session, getErr)
+			}
+		})
 	}
 }

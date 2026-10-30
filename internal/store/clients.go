@@ -8,11 +8,8 @@ import (
 )
 
 func (s *Store) UpsertClient(ctx context.Context, c Client) error {
-	redirectURIs, err := json.Marshal(c.RedirectURIs)
-	if err != nil {
-		return fmt.Errorf("encoding redirect URIs: %w", err)
-	}
-	_, err = s.db.ExecContext(ctx, `
+	redirectURIs, _ := json.Marshal(c.RedirectURIs)
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO clients (id, source, name, redirect_uris, created_at, metadata_fetched_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET

@@ -66,3 +66,21 @@ func testPendingAuth(id, stateHash string, expiresAt time.Time) PendingAuth {
 		ExpiresAt:          expiresAt,
 	}
 }
+
+var failingTriggers = map[string]string{
+	"UPDATE sessions":       `CREATE TRIGGER fail_update_sessions BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'forced failure'); END`,
+	"UPDATE refresh_tokens": `CREATE TRIGGER fail_update_refresh_tokens BEFORE UPDATE ON refresh_tokens BEGIN SELECT RAISE(ABORT, 'forced failure'); END`,
+	"DELETE access_tokens":  `CREATE TRIGGER fail_delete_access_tokens BEFORE DELETE ON access_tokens BEGIN SELECT RAISE(ABORT, 'forced failure'); END`,
+	"DELETE refresh_tokens": `CREATE TRIGGER fail_delete_refresh_tokens BEFORE DELETE ON refresh_tokens BEGIN SELECT RAISE(ABORT, 'forced failure'); END`,
+}
+
+func failWrites(t *testing.T, s *Store, event string) {
+	t.Helper()
+	trigger, ok := failingTriggers[event]
+	if !ok {
+		t.Fatalf("no failing trigger for %q", event)
+	}
+	if _, err := s.db.ExecContext(t.Context(), trigger); err != nil {
+		t.Fatalf("creating trigger for %s: %v", event, err)
+	}
+}

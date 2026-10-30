@@ -212,7 +212,7 @@ func newTestServer(t *testing.T, configure ...func(*Config)) *testEnv {
 		fn(&cfg)
 	}
 	logger := slog.New(slog.NewJSONHandler(env.logs, nil))
-	srv, err := New(cfg, Deps{
+	srv := New(cfg, Deps{
 		Store:   env.recorder,
 		Keyring: env.keyring,
 		Mealie:  env.mealie,
@@ -221,9 +221,6 @@ func newTestServer(t *testing.T, configure ...func(*Config)) *testEnv {
 		Logger:  logger,
 		Now:     env.clock.Now,
 	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
 	srv.Routes(mux)
 	env.srv = srv
 	env.seedClient(t, store.Client{ID: testClientID, Source: "dcr", Name: testClientName, RedirectURIs: []string{testClientRedirect}})
@@ -486,4 +483,11 @@ func (e *testEnv) onlySession(t *testing.T) store.Session {
 		t.Fatalf("GetSession: %v", err)
 	}
 	return stored
+}
+
+func TestNew_DefaultsToWallClock(t *testing.T) {
+	srv := New(Config{}, Deps{})
+	if got := srv.now(); time.Since(got) > time.Minute || time.Until(got) > time.Minute {
+		t.Fatalf("now() = %v, want the current time", got)
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -653,4 +654,23 @@ func FuzzCIMDParse(f *testing.F) {
 			t.Fatalf("accepted invalid metadata %+v", got)
 		}
 	})
+}
+
+func TestCIMD_DownloadRejectsUnbuildableRequest(t *testing.T) {
+	f := NewCIMDFetcher(CIMDOptions{})
+	if _, err := f.download(t.Context(), "https://app.example.com/\x7f"); err == nil || !strings.Contains(err.Error(), "building client metadata request") {
+		t.Fatalf("err = %v, want a building client metadata request error", err)
+	}
+}
+
+func TestReadLimited_ReadError(t *testing.T) {
+	if _, err := readLimited(iotest.ErrReader(errors.New("connection reset")), 10); err == nil || !strings.Contains(err.Error(), "reading client metadata") {
+		t.Fatalf("err = %v, want a reading client metadata error", err)
+	}
+}
+
+func TestGuardedDialer_RejectsAddressWithoutPort(t *testing.T) {
+	if _, err := (guardedDialer{}).DialContext(t.Context(), "tcp", "app.example.com"); err == nil || !strings.Contains(err.Error(), "splitting dial address") {
+		t.Fatalf("err = %v, want a splitting dial address error", err)
+	}
 }

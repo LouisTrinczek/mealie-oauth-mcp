@@ -56,25 +56,17 @@ func newAEAD(key config.EncryptionKey) (cipher.AEAD, error) {
 	if len(material) != keyLength {
 		return nil, fmt.Errorf("key %q must be %d bytes", key.ID, keyLength)
 	}
-	block, err := aes.NewCipher(material)
-	if err != nil {
-		return nil, fmt.Errorf("creating cipher for key %q: %w", key.ID, err)
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("creating gcm for key %q: %w", key.ID, err)
-	}
+	block, _ := aes.NewCipher(material)
+	aead, _ := cipher.NewGCM(block)
 	return aead, nil
 }
 
-func (k *Keyring) Seal(plaintext, aad []byte) ([]byte, error) {
+func (k *Keyring) Seal(plaintext, aad []byte) []byte {
 	aead := k.encryptingAEAD
 	nonce := make([]byte, aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("generating nonce: %w", err)
-	}
+	_, _ = rand.Read(nonce)
 	sealed := append(bytes.Clone(k.encryptingHeader), nonce...)
-	return aead.Seal(sealed, nonce, plaintext, additionalData(k.encryptingHeader, aad)), nil
+	return aead.Seal(sealed, nonce, plaintext, additionalData(k.encryptingHeader, aad))
 }
 
 func (k *Keyring) Open(ciphertext, aad []byte) ([]byte, error) {

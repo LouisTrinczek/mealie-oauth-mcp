@@ -769,3 +769,156 @@ func mustParse(t *testing.T, raw string) *url.URL {
 	}
 	return u
 }
+
+func TestLogin_StoreStepFailureShowsGenericError(t *testing.T) {
+	cimdParams := func(env *testEnv) url.Values {
+		clientID := "https://app.example.com/oauth/client.json"
+		env.cimd.metadata[clientID] = ClientMetadata{ClientID: clientID, ClientName: "CIMD App", RedirectURIs: []string{testClientRedirect}}
+		params := authorizeParams()
+		params.Set("client_id", clientID)
+		return params
+	}
+	failAtAuthorize := func(params func(*testEnv) url.Values) func(*testing.T, *testEnv, string) (reply, string) {
+		return func(t *testing.T, env *testEnv, failing string) (reply, string) {
+			env.failStore(failing)
+			return env.authorize(t, params(env))
+		}
+	}
+	failAtCallback := func(t *testing.T, env *testEnv, failing string) (reply, string) {
+		callback := env.callbackURL(t, authorizeParams())
+		env.failStore(failing)
+		return get(t, env.client, callback)
+	}
+	failAtDecision := func(decision string) func(*testing.T, *testEnv, string) (reply, string) {
+		return func(t *testing.T, env *testEnv, failing string) (reply, string) {
+			page := env.loginToConsent(t, authorizeParams())
+			env.failStore(failing)
+			return env.decide(t, env.client, page, decision)
+		}
+	}
+	tests := []struct {
+		failing string
+		run     func(*testing.T, *testEnv, string) (reply, string)
+	}{
+		{"CreatePendingAuth", failAtAuthorize(func(*testEnv) url.Values { return authorizeParams() })},
+		{"UpsertClient", failAtAuthorize(cimdParams)},
+		{"SetPendingAuthLogin", failAtCallback},
+		{"HasConsent", failAtCallback},
+		{"GetClient", failAtCallback},
+		{"GrantConsent", failAtDecision("allow")},
+		{"CreateSessionWithCode", failAtDecision("allow")},
+		{"DeletePendingAuth", failAtDecision("deny")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.failing, func(t *testing.T) {
+			env := newTestServer(t)
+
+			resp, body := tt.run(t, env, tt.failing)
+
+			wantPage(t, resp, body, http.StatusInternalServerError, "Something went wrong")
+			if strings.Contains(body, storeFailureDetail) {
+				t.Fatalf("error page leaks the store error: %s", body)
+			}
+			env.wantNoSession(t)
+		})
+	}
+}
+
+func TestCallback_PendingCleanupFailureIsLogged(t *testing.T) {
+	env := newTestServer(t)
+	env.mealie.nativeToken = func(context.Context, mealie.NativeTokenRequest) (mealie.Token, error) {
+		return mealie.Token{}, &mealie.APIError{Status: http.StatusUnauthorized}
+	}
+	callback := env.callbackURL(t, authorizeParams())
+	env.failStore("DeletePendingAuth")
+
+	resp, body := get(t, env.client, callback)
+
+	wantPage(t, resp, body, http.StatusForbidden, mealieRefusedCopy)
+	if !strings.Contains(env.logs.String(), `"msg":"deleting pending auth"`) {
+		t.Fatalf("cleanup failure not logged: %s", env.logs.String())
+	}
+}
+
+func TestConsent_PendingCleanupFailureStillIssuesCode(t *testing.T) {
+	env := newTestServer(t)
+	page := env.loginToConsent(t, authorizeParams())
+	env.failStore("DeletePendingAuth")
+
+	resp, _ := env.decide(t, env.client, page, "allow")
+
+	env.wantCode(t, resp)
+	if !strings.Contains(env.logs.String(), `"msg":"deleting pending auth"`) {
+		t.Fatalf("cleanup failure not logged: %s", env.logs.String())
+	}
+}
+
+func TestConsent_PendingVanished(t *testing.T) {
+	env := newTestServer(t)
+	page := env.loginToConsent(t, authorizeParams())
+	if err := env.store.DeletePendingAuth(t.Context(), page.pendingID); err != nil {
+		t.Fatalf("DeletePendingAuth: %v", err)
+	}
+
+	resp, body := env.decide(t, env.client, page, "allow")
+
+	wantPage(t, resp, body, http.StatusBadRequest, expiredCopy)
+	env.wantNoSession(t)
+}
+
+func TestConsent_BeforeLoginIsRejected(t *testing.T) {
+	env := newTestServer(t)
+	env.callbackURL(t, authorizeParams())
+	base, err := url.Parse(env.http.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page consentPage
+	for _, cookie := range env.client.Jar.Cookies(base) {
+		if cookie.Name == bindingCookieName {
+			pendingID, binding, _ := strings.Cut(cookie.Value, ".")
+			page = consentPage{pendingID: pendingID, csrf: csrfToken(binding)}
+		}
+	}
+	if page.pendingID == "" {
+		t.Fatal("authorize set no binding cookie")
+	}
+
+	resp, body := env.decide(t, env.client, page, "allow")
+
+	wantPage(t, resp, body, http.StatusBadRequest, "")
+	env.wantNoSession(t)
+}
+
+func TestConsent_UnreadableMealieToken(t *testing.T) {
+	env := newTestServer(t)
+	page := env.loginToConsent(t, authorizeParams())
+	err := env.store.SetPendingAuthLogin(t.Context(), page.pendingID, store.Login{
+		MealieUserID:         "user-1",
+		MealieUsername:       "alice",
+		MealieTokenCT:        []byte("not a sealed token"),
+		MealieTokenExpiresAt: env.clock.Now().Add(time.Hour),
+		MealieTokenLifetime:  time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("SetPendingAuthLogin: %v", err)
+	}
+
+	resp, body := env.decide(t, env.client, page, "allow")
+
+	wantPage(t, resp, body, http.StatusInternalServerError, "Something went wrong")
+	env.wantNoSession(t)
+}
+
+func TestDisplayHost(t *testing.T) {
+	tests := map[string]string{
+		"https://app.example.com/cb": "app.example.com",
+		"myapp:/callback":            "myapp",
+		"http://[::1":                "",
+	}
+	for raw, want := range tests {
+		if got := displayHost(raw); got != want {
+			t.Errorf("displayHost(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}

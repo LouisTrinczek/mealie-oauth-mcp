@@ -31,10 +31,7 @@ func (s *Store) execOne(ctx context.Context, what, query string, args ...any) er
 	if err != nil {
 		return fmt.Errorf("%s: %w", what, err)
 	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%s: %w", what, err)
-	}
+	affected, _ := result.RowsAffected()
 	if affected == 0 {
 		return ErrNotFound
 	}

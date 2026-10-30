@@ -8,10 +8,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -171,10 +174,7 @@ func seedSession(t *testing.T, a *App) string {
 	if err := a.store.UpsertClient(ctx, store.Client{ID: testClientID, Source: "dcr", Name: "App", RedirectURIs: []string{"http://127.0.0.1/cb"}}); err != nil {
 		t.Fatalf("UpsertClient: %v", err)
 	}
-	ct, err := keyring.Seal([]byte(testMealieToken), []byte("session:"+testSessionID))
-	if err != nil {
-		t.Fatalf("Seal: %v", err)
-	}
+	ct := keyring.Seal([]byte(testMealieToken), []byte("session:"+testSessionID))
 	resource := a.cfg.ResourceURL()
 	session := store.Session{
 		ID:                   testSessionID,
@@ -193,10 +193,7 @@ func seedSession(t *testing.T, a *App) string {
 	if err := a.store.CreateSessionWithCode(ctx, session, code); err != nil {
 		t.Fatalf("CreateSessionWithCode: %v", err)
 	}
-	access, _, err := token.New(token.Access)
-	if err != nil {
-		t.Fatalf("token.New: %v", err)
-	}
+	access, _ := token.New(token.Access)
 	accessRow := store.AccessToken{Hash: token.Hash(access.Reveal()), SessionID: testSessionID, ExpiresAt: now.Add(time.Hour)}
 	refresh := store.RefreshToken{Hash: token.Hash("refresh"), SessionID: testSessionID, ExpiresAt: now.Add(720 * time.Hour)}
 	if err := a.store.IssueTokens(ctx, accessRow, refresh); err != nil {
@@ -757,5 +754,119 @@ func TestApp_RunFailsOnInvalidListenAddr(t *testing.T) {
 
 	if err := a.Run(t.Context()); err == nil {
 		t.Error("Run succeeded on an invalid listen address")
+	}
+}
+
+func TestApp_NewFailures(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(t *testing.T, cfg *config.Config)
+		want   string
+	}{
+		{"no encryption keys", func(_ *testing.T, cfg *config.Config) { cfg.EncryptionKeys = nil }, "loading encryption keys"},
+		{"data dir is a file", func(t *testing.T, cfg *config.Config) {
+			file := filepath.Join(t.TempDir(), "not-a-dir")
+			if err := os.WriteFile(file, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg.DataDir = file
+		}, "opening store"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := startFakeMealie(t, currentAbout, http.StatusOK)
+			cfg := testConfig(t, fake.URL)
+			tt.mutate(t, cfg)
+
+			a, err := New(t.Context(), cfg, slog.New(slog.DiscardHandler), "test")
+			if err == nil {
+				_ = a.Close()
+				t.Fatal("New succeeded")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestApp_ServeFailsWhenListenerBreaks(t *testing.T) {
+	a, _ := startApp(t)
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	_ = listener.Close()
+
+	if err := a.serve(t.Context(), listener); err == nil || !strings.Contains(err.Error(), "serving http") {
+		t.Fatalf("serve = %v, want a serving http error", err)
+	}
+}
+
+type closeFailingListener struct {
+	net.Listener
+}
+
+func (l closeFailingListener) Close() error {
+	_ = l.Listener.Close()
+	return errors.New("listener close failed")
+}
+
+func TestApp_ShutdownReportsListenerCloseFailure(t *testing.T) {
+	a, _ := startApp(t)
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	ctx, stop := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.serve(ctx, closeFailingListener{listener}) }()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+listener.Addr().String()+"/healthz", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("healthz before shutdown: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	stop()
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "shutting down http server") {
+		t.Fatalf("serve = %v, want a shutting down http server error", err)
+	}
+}
+
+func TestApp_CleanupLoopDeletesOnEachTick(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	logs := &syncBuffer{}
+	a := newTestApp(t, testConfig(t, fake.URL), logs)
+	ctx, stop := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		a.cleanupLoop(ctx, time.Millisecond)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), "deleted expired rows") {
+		if time.Now().After(deadline) {
+			t.Fatal("cleanup loop never deleted expired rows")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	stop()
+	<-done
+}
+
+func TestApp_DeleteExpiredLogsFailure(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	logs := &syncBuffer{}
+	a := newTestApp(t, testConfig(t, fake.URL), logs)
+	_ = a.store.Close()
+
+	a.deleteExpired(t.Context())
+	if !strings.Contains(logs.String(), "deleting expired rows failed") {
+		t.Errorf("logs = %s, want the cleanup failure logged", logs)
 	}
 }

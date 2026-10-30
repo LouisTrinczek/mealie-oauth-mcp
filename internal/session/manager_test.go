@@ -133,10 +133,7 @@ func (e *testEnv) seedSession(t *testing.T, resource string) {
 	if err := e.store.UpsertClient(ctx, store.Client{ID: testClientID, Source: "dcr", Name: "App", RedirectURIs: []string{"http://127.0.0.1/cb"}}); err != nil {
 		t.Fatalf("UpsertClient: %v", err)
 	}
-	ct, err := e.keyring.Seal([]byte(testMealieToken), []byte("session:"+testSessionID))
-	if err != nil {
-		t.Fatalf("Seal: %v", err)
-	}
+	ct := e.keyring.Seal([]byte(testMealieToken), []byte("session:"+testSessionID))
 	session := store.Session{
 		ID:                   testSessionID,
 		ClientID:             testClientID,
@@ -154,10 +151,7 @@ func (e *testEnv) seedSession(t *testing.T, resource string) {
 	if err := e.store.CreateSessionWithCode(ctx, session, code); err != nil {
 		t.Fatalf("CreateSessionWithCode: %v", err)
 	}
-	access, _, err := token.New(token.Access)
-	if err != nil {
-		t.Fatalf("token.New: %v", err)
-	}
+	access, _ := token.New(token.Access)
 	e.access = access.Reveal()
 	accessRow := store.AccessToken{Hash: token.Hash(e.access), SessionID: testSessionID, ExpiresAt: now.Add(testAccessTTL)}
 	refresh := store.RefreshToken{Hash: token.Hash("refresh"), SessionID: testSessionID, ExpiresAt: now.Add(testSessionMaxAge)}
@@ -229,10 +223,7 @@ func TestVerify_TouchesSession(t *testing.T) {
 }
 
 func TestVerify_Rejected(t *testing.T) {
-	unknown, _, err := token.New(token.Access)
-	if err != nil {
-		t.Fatalf("token.New: %v", err)
-	}
+	unknown, _ := token.New(token.Access)
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, env *testEnv)
@@ -553,10 +544,7 @@ func TestMealieToken_RejectsForeignInfo(t *testing.T) {
 
 func (e *testEnv) storeUndecryptableToken(t *testing.T, keyring *tokencrypt.Keyring, aad string) {
 	t.Helper()
-	ct, err := keyring.Seal([]byte(testMealieToken), []byte(aad))
-	if err != nil {
-		t.Fatalf("Seal: %v", err)
-	}
+	ct := keyring.Seal([]byte(testMealieToken), []byte(aad))
 	if err := e.store.UpdateSessionMealieToken(t.Context(), testSessionID, ct, e.clock.Now().Add(testLifetime), testLifetime); err != nil {
 		t.Fatalf("UpdateSessionMealieToken: %v", err)
 	}
@@ -693,10 +681,7 @@ func TestRequireBearerToken_401HasResourceMetadata(t *testing.T) {
 
 func (e *testEnv) issueAccessToken(t *testing.T, ttl time.Duration) {
 	t.Helper()
-	access, _, err := token.New(token.Access)
-	if err != nil {
-		t.Fatalf("token.New: %v", err)
-	}
+	access, _ := token.New(token.Access)
 	now := e.clock.Now()
 	accessRow := store.AccessToken{Hash: token.Hash(access.Reveal()), SessionID: testSessionID, ExpiresAt: now.Add(ttl)}
 	refresh := store.RefreshToken{Hash: token.Hash(token.RandomID()), SessionID: testSessionID, ExpiresAt: now.Add(testSessionMaxAge)}

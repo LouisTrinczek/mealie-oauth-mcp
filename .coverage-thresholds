@@ -1,10 +1,3 @@
-default 80
-internal/tokencrypt 90
-internal/token 90
-internal/oauth 90
-internal/session 90
-internal/store 90
-internal/mcpserver 90
-internal/app 90
+default 100
 internal/codestyle 0
 cmd/mealie-oauth-mcp 0

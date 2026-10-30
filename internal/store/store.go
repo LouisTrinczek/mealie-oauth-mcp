@@ -41,11 +41,7 @@ func Open(ctx context.Context, dataDir string, logger *slog.Logger) (*Store, err
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, databaseFile)+dsnPragmas)
-	if err != nil {
-		_ = lock.Close()
-		return nil, fmt.Errorf("opening database: %w", err)
-	}
+	db, _ := sql.Open("sqlite", "file:"+filepath.Join(dataDir, databaseFile)+dsnPragmas)
 	db.SetMaxOpenConns(1)
 	if err := migrate(ctx, db, migrationFiles, logger); err != nil {
 		_ = db.Close()
@@ -74,6 +70,10 @@ func (s *Store) probeWriteLock(ctx context.Context, whileLocked func()) (err err
 		whileLocked()
 	}
 	_, rollbackErr := conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+	return writeLockProbeError(beginErr, rollbackErr)
+}
+
+func writeLockProbeError(beginErr, rollbackErr error) error {
 	switch {
 	case beginErr != nil:
 		return fmt.Errorf("beginning write transaction: %w", beginErr)
@@ -84,10 +84,7 @@ func (s *Store) probeWriteLock(ctx context.Context, whileLocked func()) (err err
 }
 
 func migrate(ctx context.Context, db *sql.DB, files fs.FS, logger *slog.Logger) error {
-	migrations, err := fs.Sub(files, "migrations")
-	if err != nil {
-		return fmt.Errorf("locating migrations: %w", err)
-	}
+	migrations, _ := fs.Sub(files, "migrations")
 	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrations, goose.WithSlog(logger), goose.WithDisableGlobalRegistry(true))
 	if err != nil {
 		return fmt.Errorf("creating migration provider: %w", err)

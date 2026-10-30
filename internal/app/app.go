@@ -81,10 +81,7 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version s
 		return nil, fmt.Errorf("opening store: %w", err)
 	}
 	a := &App{cfg: cfg, logger: logger, store: st, mealie: client, now: time.Now, shutdownGrace: shutdownGracePeriod}
-	a.handler, err = a.routes(keyring, version)
-	if err != nil {
-		return nil, errors.Join(err, st.Close())
-	}
+	a.handler = a.routes(keyring, version)
 	return a, nil
 }
 
@@ -102,9 +99,9 @@ func (a *App) Close() error {
 	return a.store.Close()
 }
 
-func (a *App) routes(keyring *tokencrypt.Keyring, version string) (http.Handler, error) {
+func (a *App) routes(keyring *tokencrypt.Keyring, version string) http.Handler {
 	auditLog := audit.New(a.logger)
-	oauthServer, err := oauth.New(a.oauthConfig(), oauth.Deps{
+	oauthServer := oauth.New(a.oauthConfig(), oauth.Deps{
 		Store:   a.store,
 		Keyring: keyring,
 		Mealie:  a.mealie,
@@ -113,9 +110,6 @@ func (a *App) routes(keyring *tokencrypt.Keyring, version string) (http.Handler,
 		Logger:  a.logger,
 		Now:     a.now,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("building oauth server: %w", err)
-	}
 	sessions := session.New(session.Deps{
 		Store:    a.store,
 		Keyring:  keyring,
@@ -132,7 +126,7 @@ func (a *App) routes(keyring *tokencrypt.Keyring, version string) (http.Handler,
 	mux.Handle("/mcp", a.mcpHandler(sessions, tools))
 	mux.HandleFunc("GET /healthz", healthz)
 	mux.HandleFunc("GET /readyz", a.readyz)
-	return a.withMiddleware(mux), nil
+	return a.withMiddleware(mux)
 }
 
 func (a *App) oauthConfig() oauth.Config {
@@ -206,10 +200,13 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("listening on %s: %w", a.cfg.ListenAddr, err)
 	}
 	a.logger.InfoContext(ctx, "listening", slog.String("addr", listener.Addr().String()))
+	return a.serve(ctx, listener)
+}
 
+func (a *App) serve(ctx context.Context, listener net.Listener) error {
 	ctx, stop := context.WithCancel(ctx)
 	var cleanup sync.WaitGroup
-	cleanup.Go(func() { a.cleanupLoop(ctx) })
+	cleanup.Go(func() { a.cleanupLoop(ctx, cleanupInterval) })
 
 	requests, endRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer endRequests()
@@ -217,6 +214,7 @@ func (a *App) Run(ctx context.Context) error {
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(listener) }()
 
+	var err error
 	select {
 	case err = <-served:
 		err = fmt.Errorf("serving http: %w", err)
@@ -252,8 +250,8 @@ func (a *App) shutdown(ctx context.Context, srv *http.Server, endRequests contex
 	return nil
 }
 
-func (a *App) cleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(cleanupInterval)
+func (a *App) cleanupLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {

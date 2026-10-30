@@ -23,9 +23,9 @@ const (
 	verifierBytes = 32
 )
 
-func New(k Kind) (secret.Secret, []byte, error) {
+func New(k Kind) (secret.Secret, []byte) {
 	plain := string(k) + randomString(tokenBytes)
-	return secret.FromString(plain), Hash(plain), nil
+	return secret.FromString(plain), Hash(plain)
 }
 
 func Hash(plain string) []byte {

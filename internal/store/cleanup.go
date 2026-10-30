@@ -44,10 +44,7 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int64, error)
 			if err != nil {
 				return fmt.Errorf("deleting expired %s: %w", statement.what, err)
 			}
-			affected, err := result.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("deleting expired %s: %w", statement.what, err)
-			}
+			affected, _ := result.RowsAffected()
 			deleted += affected
 		}
 		return nil

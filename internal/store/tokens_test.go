@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -217,5 +218,17 @@ func TestRotateRefreshToken_NotFound(t *testing.T) {
 				t.Fatalf("RotateRefreshToken = (%q, %v), want (\"\", ErrNotFound)", sessionID, err)
 			}
 		})
+	}
+}
+
+func TestRotateRefreshToken_UpdateFailure(t *testing.T) {
+	s := newTestStore(t)
+	issueRotatableToken(t, s, baseTime.Add(24*time.Hour))
+	failWrites(t, s, "UPDATE refresh_tokens")
+	access, refresh := nextTokens()
+
+	_, err := s.RotateRefreshToken(t.Context(), []byte("rt-1"), baseTime.Add(time.Minute), access, refresh)
+	if err == nil || !strings.Contains(err.Error(), "rotating refresh token") {
+		t.Fatalf("err = %v, want a rotating refresh token error", err)
 	}
 }

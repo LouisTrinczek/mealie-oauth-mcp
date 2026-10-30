@@ -350,3 +350,70 @@ func TestClient_SendsQuery(t *testing.T) {
 		t.Errorf("query = %v", gotQuery)
 	}
 }
+
+func TestClient_RequestFailuresBeforeSending(t *testing.T) {
+	var calls atomic.Int32
+	c := newTestClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	tests := []struct {
+		name   string
+		method string
+		body   any
+		want   string
+	}{
+		{"unencodable body", http.MethodPost, make(chan int), "encoding mealie request"},
+		{"invalid method", "BAD METHOD", nil, "building mealie request"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := c.do(context.Background(), secret.Secret{}, tt.method, "/api/x", nil, tt.body, nil)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want %q", err, tt.want)
+			}
+		})
+	}
+	if got := calls.Load(); got != 0 {
+		t.Errorf("requests sent = %d, want 0", got)
+	}
+}
+
+func TestClient_TruncatedResponseBody(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "100")
+		respond(w, `{"version":`)
+	}))
+	err := c.do(context.Background(), secret.Secret{}, http.MethodPost, "/api/x", nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "reading mealie response") {
+		t.Fatalf("err = %v, want a reading mealie response error", err)
+	}
+}
+
+func TestAPIError_DetailShapes(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{"validation entries without messages", http.StatusUnprocessableEntity, `{"detail":[{"msg":""},{"loc":["body"]}]}`, "Unprocessable Entity"},
+		{"validation entries skip empty messages", http.StatusUnprocessableEntity, `{"detail":[{"msg":""},{"msg":"kept"}]}`, "kept"},
+		{"object detail", http.StatusBadRequest, `{"detail":{"reason":"bad"}}`, `{"reason":"bad"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				respond(w, tt.body)
+			}))
+			err := c.do(context.Background(), secret.Secret{}, http.MethodPost, "/api/x", nil, nil, nil)
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("err = %v, want *APIError", err)
+			}
+			if apiErr.Message != tt.want {
+				t.Errorf("Message = %q, want %q", apiErr.Message, tt.want)
+			}
+		})
+	}
+}

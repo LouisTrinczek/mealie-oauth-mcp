@@ -61,10 +61,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) saveLogin(ctx context.Context, pending store.PendingAuth, tok mealie.Token, user mealie.User) (store.PendingAuth, error) {
-	sealed, err := s.keyring.Seal(tok.AccessToken.Bytes(), pendingAAD(pending.ID))
-	if err != nil {
-		return pending, err
-	}
+	sealed := s.keyring.Seal(tok.AccessToken.Bytes(), pendingAAD(pending.ID))
 	login := store.Login{
 		MealieUserID:         user.ID,
 		MealieUsername:       user.Username,

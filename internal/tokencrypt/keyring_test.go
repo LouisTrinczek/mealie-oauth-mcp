@@ -25,10 +25,7 @@ func mustKeyring(t *testing.T, keys ...config.EncryptionKey) *Keyring {
 
 func mustSeal(t *testing.T, keyring *Keyring, plaintext, aad []byte) []byte {
 	t.Helper()
-	sealed, err := keyring.Seal(plaintext, aad)
-	if err != nil {
-		t.Fatalf("Seal: %v", err)
-	}
+	sealed := keyring.Seal(plaintext, aad)
 	return sealed
 }
 
@@ -163,10 +160,7 @@ func FuzzOpen(f *testing.F) {
 	if err != nil {
 		f.Fatalf("NewKeyring: %v", err)
 	}
-	sealed, err := keyring.Seal([]byte("secret"), []byte("aad"))
-	if err != nil {
-		f.Fatalf("Seal: %v", err)
-	}
+	sealed := keyring.Seal([]byte("secret"), []byte("aad"))
 	f.Add(sealed, []byte("aad"))
 	f.Add([]byte{}, []byte{})
 	f.Add([]byte{0x01, 0xff}, []byte("aad"))

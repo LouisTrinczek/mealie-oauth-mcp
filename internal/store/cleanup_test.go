@@ -2,6 +2,7 @@ package store
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -187,5 +188,20 @@ func TestRepositories_ClosedStoreErrors(t *testing.T) {
 				t.Fatal("want error on closed store")
 			}
 		})
+	}
+}
+
+func TestDeleteExpired_DeleteFailureRollsBack(t *testing.T) {
+	s := newTestStore(t)
+	now := baseTime.Add(1000 * time.Hour)
+	seedExpiryBoundaries(t, s, now)
+	failWrites(t, s, "DELETE refresh_tokens")
+
+	deleted, err := s.DeleteExpired(t.Context(), now)
+	if err == nil || !strings.Contains(err.Error(), "deleting expired refresh tokens") || deleted != 0 {
+		t.Fatalf("DeleteExpired = (%d, %v), want (0, deleting expired refresh tokens error)", deleted, err)
+	}
+	if deleted, err := s.DeleteExpired(t.Context(), baseTime); err != nil || deleted != 0 {
+		t.Fatalf("DeleteExpired before any expiry = (%d, %v), want (0, nil)", deleted, err)
 	}
 }

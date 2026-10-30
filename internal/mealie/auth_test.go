@@ -3,6 +3,7 @@ package mealie
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -154,5 +155,31 @@ func TestAbout(t *testing.T) {
 	}
 	if about != (About{Version: "v3.23.0", EnableOIDC: true}) {
 		t.Errorf("about = %+v", about)
+	}
+}
+
+func TestAuthCalls_WrapMealieErrors(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	tests := []struct {
+		name string
+		call func() error
+		want string
+	}{
+		{"NativeConfig", func() error { _, err := c.NativeConfig(context.Background()); return err }, "fetching mealie native config"},
+		{"RefreshToken", func() error {
+			_, err := c.RefreshToken(context.Background(), secret.FromString("tok"))
+			return err
+		}, "refreshing mealie token"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call()
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want an APIError wrapped with %q", err, tt.want)
+			}
+		})
 	}
 }

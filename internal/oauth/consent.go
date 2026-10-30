@@ -111,11 +111,7 @@ func (s *Server) finish(w http.ResponseWriter, r *http.Request, pending store.Pe
 		s.internalError(w, r, "resealing mealie token", err)
 		return
 	}
-	code, codeHash, err := token.New(token.Code)
-	if err != nil {
-		s.internalError(w, r, "generating authorization code", err)
-		return
-	}
+	code, codeHash := token.New(token.Code)
 	session := store.Session{
 		ID:                   sessionID,
 		ClientID:             pending.ClientID,
@@ -155,7 +151,7 @@ func (s *Server) resealForSession(pending store.PendingAuth, sessionID string) (
 	if err != nil {
 		return nil, err
 	}
-	return s.keyring.Seal(plain, []byte("session:"+sessionID))
+	return s.keyring.Seal(plain, []byte("session:"+sessionID)), nil
 }
 
 func consentAttrs(pending store.PendingAuth) []slog.Attr {

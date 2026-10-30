@@ -188,10 +188,7 @@ func failureAttr(err error) slog.Attr {
 }
 
 func (m *Manager) storeRenewed(ctx context.Context, id string, fresh mealie.Token) error {
-	ct, err := m.keyring.Seal(fresh.AccessToken.Bytes(), sessionAAD(id))
-	if err != nil {
-		return m.internal(ctx, "sealing renewed token", err)
-	}
+	ct := m.keyring.Seal(fresh.AccessToken.Bytes(), sessionAAD(id))
 	if err := m.store.UpdateSessionMealieToken(ctx, id, ct, m.now().Add(fresh.ExpiresIn), fresh.ExpiresIn); err != nil {
 		return m.internal(ctx, "storing renewed token", err)
 	}
@@ -201,19 +198,12 @@ func (m *Manager) storeRenewed(ctx context.Context, id string, fresh mealie.Toke
 
 func (m *Manager) openMealieToken(ctx context.Context, session store.Session) (secret.Secret, error) {
 	plain, err := m.keyring.Open(session.MealieTokenCT, sessionAAD(session.ID))
-	if isDecryptionFailure(err) {
+	if err != nil {
 		m.logger.WarnContext(ctx, "mealie token cannot be decrypted, revoking the session", slog.String("session_id", session.ID), slog.Any("error", err))
 		m.revoke(ctx, session.ID, audit.SessionRevoked)
 		return secret.Secret{}, auth.ErrInvalidToken
 	}
-	if err != nil {
-		return secret.Secret{}, m.internal(ctx, "opening mealie token", err)
-	}
 	return secret.New(plain), nil
-}
-
-func isDecryptionFailure(err error) bool {
-	return errors.Is(err, tokencrypt.ErrUnknownKey) || errors.Is(err, tokencrypt.ErrDecrypt)
 }
 
 func (m *Manager) revoke(ctx context.Context, id string, event audit.EventType) {

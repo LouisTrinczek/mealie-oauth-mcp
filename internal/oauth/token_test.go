@@ -416,6 +416,62 @@ func (f *failingStore) RevokeSession(ctx context.Context, id string, now time.Ti
 	return f.Store.RevokeSession(ctx, id, now)
 }
 
+func (f *failingStore) UpsertClient(ctx context.Context, c store.Client) error {
+	if err := f.fail("UpsertClient"); err != nil {
+		return err
+	}
+	return f.Store.UpsertClient(ctx, c)
+}
+
+func (f *failingStore) GetClient(ctx context.Context, id string) (store.Client, error) {
+	if err := f.fail("GetClient"); err != nil {
+		return store.Client{}, err
+	}
+	return f.Store.GetClient(ctx, id)
+}
+
+func (f *failingStore) CreatePendingAuth(ctx context.Context, p store.PendingAuth) error {
+	if err := f.fail("CreatePendingAuth"); err != nil {
+		return err
+	}
+	return f.Store.CreatePendingAuth(ctx, p)
+}
+
+func (f *failingStore) SetPendingAuthLogin(ctx context.Context, id string, l store.Login) error {
+	if err := f.fail("SetPendingAuthLogin"); err != nil {
+		return err
+	}
+	return f.Store.SetPendingAuthLogin(ctx, id, l)
+}
+
+func (f *failingStore) DeletePendingAuth(ctx context.Context, id string) error {
+	if err := f.fail("DeletePendingAuth"); err != nil {
+		return err
+	}
+	return f.Store.DeletePendingAuth(ctx, id)
+}
+
+func (f *failingStore) HasConsent(ctx context.Context, userID, clientID string) (bool, error) {
+	if err := f.fail("HasConsent"); err != nil {
+		return false, err
+	}
+	return f.Store.HasConsent(ctx, userID, clientID)
+}
+
+func (f *failingStore) GrantConsent(ctx context.Context, userID, clientID string, now time.Time) error {
+	if err := f.fail("GrantConsent"); err != nil {
+		return err
+	}
+	return f.Store.GrantConsent(ctx, userID, clientID, now)
+}
+
+func (f *failingStore) CreateSessionWithCode(ctx context.Context, session store.Session, code store.AuthCode) error {
+	if err := f.fail("CreateSessionWithCode"); err != nil {
+		return err
+	}
+	return f.Store.CreateSessionWithCode(ctx, session, code)
+}
+
 func (e *testEnv) failStore(method string) {
 	e.failStoreWith(method, errors.New(storeFailureDetail))
 }

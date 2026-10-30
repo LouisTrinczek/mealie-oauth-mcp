@@ -283,3 +283,42 @@ func TestMigrate_Failures(t *testing.T) {
 		})
 	}
 }
+
+func TestInTx_CommitFailure(t *testing.T) {
+	s := newTestStore(t)
+
+	err := s.inTx(t.Context(), func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(t.Context(), `PRAGMA defer_foreign_keys = ON`); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(t.Context(),
+			`INSERT INTO access_tokens (hash, session_id, expires_at) VALUES (x'01', 'missing-session', 1)`)
+		return err
+	})
+	if err == nil || !strings.Contains(err.Error(), "committing transaction") {
+		t.Fatalf("err = %v, want a committing transaction error", err)
+	}
+}
+
+func TestWriteLockProbeError(t *testing.T) {
+	errBegin := errors.New("begin failed")
+	errRollback := errors.New("rollback failed")
+	tests := []struct {
+		name        string
+		beginErr    error
+		rollbackErr error
+		want        error
+	}{
+		{"both succeed", nil, nil, nil},
+		{"begin fails", errBegin, errRollback, errBegin},
+		{"rollback fails", nil, errRollback, errRollback},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := writeLockProbeError(tt.beginErr, tt.rollbackErr)
+			if !errors.Is(err, tt.want) || (tt.want == nil) != (err == nil) {
+				t.Fatalf("err = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}

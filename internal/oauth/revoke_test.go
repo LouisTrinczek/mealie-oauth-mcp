@@ -3,6 +3,7 @@ package oauth
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -61,5 +62,15 @@ func TestRevoke_StoreFailure(t *testing.T) {
 
 			wantServerError(t, resp, body)
 		})
+	}
+}
+
+func TestRevoke_OversizedBody(t *testing.T) {
+	env := newTestServer(t)
+
+	resp, body := postForm(t, env.client, env.http.URL+"/revoke", url.Values{"token": {strings.Repeat("a", 8<<10)}})
+
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "invalid_request") {
+		t.Fatalf("revoke = %d %s, want 400 invalid_request", resp.StatusCode, body)
 	}
 }

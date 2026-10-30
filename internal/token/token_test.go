@@ -21,10 +21,7 @@ func TestNew_FormatAndHash(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plain, hash, err := New(tt.kind)
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
+			plain, hash := New(tt.kind)
 			got := plain.Reveal()
 			if !strings.HasPrefix(got, tt.prefix) {
 				t.Fatalf("missing prefix %q", tt.prefix)
@@ -44,16 +41,16 @@ func TestNew_FormatAndHash(t *testing.T) {
 }
 
 func TestNew_Unique(t *testing.T) {
-	a, _, _ := New(Access)
-	b, _, _ := New(Access)
+	a, _ := New(Access)
+	b, _ := New(Access)
 	if a.Reveal() == b.Reveal() {
 		t.Fatal("two tokens are identical")
 	}
 }
 
 func TestHasKind(t *testing.T) {
-	access, _, _ := New(Access)
-	refresh, _, _ := New(Refresh)
+	access, _ := New(Access)
+	refresh, _ := New(Refresh)
 	tests := []struct {
 		name  string
 		plain string

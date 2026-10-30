@@ -103,11 +103,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pair, err := s.newTokenPair(session)
-	if err != nil {
-		s.tokenServerError(w, r, "generating tokens", err)
-		return
-	}
+	pair := s.newTokenPair(session)
 	if err := s.store.IssueTokens(ctx, pair.accessRow, pair.refreshRow); err != nil {
 		s.tokenServerError(w, r, "issuing tokens", err)
 		return
@@ -137,11 +133,7 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "invalid_grant", descClientMismatch)
 		return
 	}
-	pair, err := s.newTokenPair(session)
-	if err != nil {
-		s.tokenServerError(w, r, "generating tokens", err)
-		return
-	}
+	pair := s.newTokenPair(session)
 	sessionID, err := s.store.RotateRefreshToken(ctx, oldHash, s.now(), pair.accessRow, pair.refreshRow)
 	if errors.Is(err, store.ErrAlreadyUsed) {
 		s.rejectReuse(w, r, sessionID, session.ClientID, reuseKindRefresh, descRefreshInvalid)
@@ -196,21 +188,15 @@ func (s *Server) rejectReuse(w http.ResponseWriter, r *http.Request, sessionID, 
 	writeJSONError(w, http.StatusBadRequest, "invalid_grant", description)
 }
 
-func (s *Server) newTokenPair(session store.Session) (tokenPair, error) {
-	access, accessHash, err := token.New(token.Access)
-	if err != nil {
-		return tokenPair{}, err
-	}
-	refresh, refreshHash, err := token.New(token.Refresh)
-	if err != nil {
-		return tokenPair{}, err
-	}
+func (s *Server) newTokenPair(session store.Session) tokenPair {
+	access, accessHash := token.New(token.Access)
+	refresh, refreshHash := token.New(token.Refresh)
 	return tokenPair{
 		access:     access,
 		refresh:    refresh,
 		accessRow:  store.AccessToken{Hash: accessHash, SessionID: session.ID, ExpiresAt: s.now().Add(s.cfg.AccessTokenTTL)},
 		refreshRow: store.RefreshToken{Hash: refreshHash, SessionID: session.ID, ExpiresAt: session.ExpiresAt},
-	}, nil
+	}
 }
 
 func (s *Server) writeTokens(w http.ResponseWriter, pair tokenPair) {

@@ -72,10 +72,7 @@ func (s *Store) RevokeSession(ctx context.Context, id string, now time.Time) err
 		if err != nil {
 			return fmt.Errorf("revoking session: %w", err)
 		}
-		affected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("revoking session: %w", err)
-		}
+		affected, _ := result.RowsAffected()
 		if affected == 0 {
 			return ErrNotFound
 		}

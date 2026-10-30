@@ -21,10 +21,14 @@ func lockFile(dataDir string) (*os.File, error) {
 	}
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = file.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, ErrLocked
-		}
-		return nil, fmt.Errorf("locking data directory: %w", err)
+		return nil, flockError(err)
 	}
 	return file, nil
+}
+
+func flockError(err error) error {
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return ErrLocked
+	}
+	return fmt.Errorf("locking data directory: %w", err)
 }
