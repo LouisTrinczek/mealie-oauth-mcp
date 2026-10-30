@@ -57,6 +57,8 @@ func New(d Deps) (*mcp.Server, error) {
 		addAccountRead(srv, d),
 		addRecipesRead(srv, d),
 		addRecipesWrite(srv, d),
+		addHistoryRead(srv, d),
+		addHistoryWrite(srv, d),
 	)
 }
 
