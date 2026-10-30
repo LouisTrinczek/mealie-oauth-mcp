@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: ["**"]
   schedule:
     - cron: "0 6 * * 1"
 
@@ -43,7 +43,9 @@ jobs:
           path: coverage.out
           if-no-files-found: ignore
 
+  # Same-repo pull requests reuse the push run's results for the heavy jobs.
   vuln:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -55,6 +57,7 @@ jobs:
 
   integration:
     name: integration (${{ matrix.label }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: ${{ matrix.experimental }}
@@ -76,6 +79,7 @@ jobs:
           MEALIE_VERSION: ${{ matrix.mealie-version }}
 
   image:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
