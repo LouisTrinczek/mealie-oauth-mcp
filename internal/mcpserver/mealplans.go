@@ -211,11 +211,7 @@ func entryBody(ctx context.Context, s *session, e mealplanEntry) (map[string]any
 	return body, nil
 }
 
-func postMealplan(ctx context.Context, s *session, e mealplanEntry) (any, error) {
-	body, err := entryBody(ctx, s, e)
-	if err != nil {
-		return nil, err
-	}
+func postMealplan(ctx context.Context, s *session, body map[string]any) (any, error) {
 	raw, err := s.call(ctx, http.MethodPost, mealplansPath, nil, body)
 	if err != nil {
 		return nil, err
@@ -228,7 +224,11 @@ func createMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 	if err := checkEntry("create", entry); err != nil {
 		return nil, err
 	}
-	return postMealplan(ctx, s, entry)
+	body, err := entryBody(ctx, s, entry)
+	if err != nil {
+		return nil, err
+	}
+	return postMealplan(ctx, s, body)
 }
 
 func dateOrNone(date string) string {
@@ -236,6 +236,10 @@ func dateOrNone(date string) string {
 		return "no date"
 	}
 	return date
+}
+
+func invalidEntry(index int, e mealplanEntry, err error) error {
+	return toolFailure(fmt.Sprintf("Entry %d (%s) is invalid: %s Nothing was created.", index+1, dateOrNone(e.Date), err))
 }
 
 func bulkCreateMealplans(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
@@ -247,12 +251,20 @@ func bulkCreateMealplans(ctx context.Context, s *session, in mealplansWriteInput
 	}
 	for i, e := range in.Entries {
 		if err := checkEntry("bulk_create", e); err != nil {
-			return nil, toolFailure(fmt.Sprintf("Entry %d (%s) is invalid: %s Nothing was created.", i+1, dateOrNone(e.Date), err))
+			return nil, invalidEntry(i, e, err)
 		}
+	}
+	bodies := make([]map[string]any, 0, len(in.Entries))
+	for i, e := range in.Entries {
+		body, err := entryBody(ctx, s, e)
+		if err != nil {
+			return nil, invalidEntry(i, e, err)
+		}
+		bodies = append(bodies, body)
 	}
 	created := make([]any, 0, len(in.Entries))
 	for i, e := range in.Entries {
-		entry, err := postMealplan(ctx, s, e)
+		entry, err := postMealplan(ctx, s, bodies[i])
 		if err != nil {
 			return nil, toolFailure(fmt.Sprintf("Created %d of %d entries; entry %d (%s) failed: %s", i, len(in.Entries), i+1, e.Date, err))
 		}

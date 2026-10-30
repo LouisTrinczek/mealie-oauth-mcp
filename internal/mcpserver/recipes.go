@@ -32,8 +32,8 @@ type recipesReadInput struct {
 	Query          string   `json:"query,omitempty" jsonschema:"search: text to search for."`
 	Categories     []string `json:"categories,omitempty" jsonschema:"search: category slugs or ids."`
 	Tags           []string `json:"tags,omitempty" jsonschema:"search: tag slugs or ids."`
-	Tools          []string `json:"tools,omitempty" jsonschema:"search, suggest: tool slugs or ids."`
-	Foods          []string `json:"foods,omitempty" jsonschema:"search, suggest: food slugs or ids."`
+	Tools          []string `json:"tools,omitempty" jsonschema:"search: tool slugs or ids. suggest: tool ids (organizers_read lists them)."`
+	Foods          []string `json:"foods,omitempty" jsonschema:"search, suggest: food ids (foods have no slugs; ingredients_read lists them)."`
 	RequireAll     bool     `json:"requireAll,omitempty" jsonschema:"search: require all given categories, tags, tools and foods instead of any."`
 	OrderBy        string   `json:"orderBy,omitempty" jsonschema:"search: e.g. name, createdAt, rating, lastMade, random."`
 	OrderDirection string   `json:"orderDirection,omitempty" jsonschema:"search: sort direction."`
@@ -81,7 +81,7 @@ func addRecipesWrite(srv *mcp.Server, d Deps) error {
 		{name: "update", help: "Change recipe fields. Needs slug, fields.", run: updateRecipe},
 		{name: "duplicate", help: "Copy a recipe. Needs slug. Optional: name.", run: duplicateRecipe},
 		{name: "delete", help: "Delete a recipe. Needs slug.", run: deleteRecipe},
-		{name: "mark_made", help: "Record that a recipe was made. Needs slug. Optional: timestamp.", run: markMadeAction},
+		{name: "mark_made", help: "Set the recipe's last-made date only; it adds no timeline entry. Use history_write made_it to also log it on the timeline. Needs slug. Optional: timestamp.", run: markMadeAction},
 		{name: "set_image_url", help: "Set a recipe image from a URL. Needs slug, url.", run: setRecipeImage},
 		{name: "add_asset_url", help: "Attach a file from a URL to a recipe. Needs slug, url.", run: addRecipeAsset},
 		{name: "share", help: "Create a share link. Needs slug. Optional: expiresAt.", run: shareRecipe},

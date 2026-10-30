@@ -612,3 +612,21 @@ func TestRecipesWrite_BulkTagRejectsUnexpectedOrganizer(t *testing.T) {
 		t.Errorf("requests = %+v, want only the lookup", seen)
 	}
 }
+
+func TestRecipesTools_DescribeIDsAndMarkMade(t *testing.T) {
+	cs := connectTools(t, newFakeMealie(t))
+
+	properties := schemaJSON(t, findTool(t, cs, "recipes_read").InputSchema)["properties"].(map[string]any)
+	for field, want := range map[string]string{
+		"foods": "search, suggest: food ids (foods have no slugs; ingredients_read lists them).",
+		"tools": "search: tool slugs or ids. suggest: tool ids (organizers_read lists them).",
+	} {
+		if got := properties[field].(map[string]any)["description"]; got != want {
+			t.Errorf("%s description = %q, want %q", field, got, want)
+		}
+	}
+	const markMade = "\n- mark_made: Set the recipe's last-made date only; it adds no timeline entry. Use history_write made_it to also log it on the timeline. Needs slug. Optional: timestamp.\n"
+	if description := findTool(t, cs, "recipes_write").Description; !strings.Contains(description, markMade) {
+		t.Errorf("recipes_write description %q lacks %q", description, markMade)
+	}
+}

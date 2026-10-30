@@ -246,6 +246,7 @@ func TestMergeUpdate_StopsBeforePutOnFailure(t *testing.T) {
 	}{
 		{"Missing", http.StatusNotFound, `{"detail":"gone"}`, "Mealie could not find that (404): gone."},
 		{"NotAnObject", http.StatusOK, `[1,2]`, "reading /api/x before the update"},
+		{"Null", http.StatusOK, `null`, "reading /api/x before the update: Mealie returned no object"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -356,7 +357,7 @@ func TestOk(t *testing.T) {
 	}{
 		{"Empty", nil, map[string]bool{"ok": true}},
 		{"Body", json.RawMessage(`{"id":"1","note":""}`), json.RawMessage(`{"id":"1"}`)},
-		{"NotJSON", json.RawMessage(`done`), json.RawMessage(`done`)},
+		{"NotJSON", json.RawMessage(`done`), map[string]bool{"ok": true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

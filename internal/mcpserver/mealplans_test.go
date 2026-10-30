@@ -259,6 +259,25 @@ func TestMealplansWrite_BulkCreateValidatesEveryEntryFirst(t *testing.T) {
 	}
 }
 
+func TestMealplansWrite_BulkCreateResolvesEveryRecipeFirst(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/recipes/nope", http.StatusNotFound, `{"detail":"gone"}`)
+	api.on(http.MethodPost, mealplansEndpoint, http.StatusCreated, entryBodyJSON)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{
+		map[string]any{"date": "2026-10-31", "title": "A"},
+		map[string]any{"date": "2026-11-01", "slug": "nope"},
+	}})
+	want := "Entry 2 (2026-11-01) is invalid: Mealie could not find that (404): gone. Check the slug or id; search or list to find it. Nothing was created."
+	if got := resultText(t, res); !res.IsError || got != want {
+		t.Errorf("result = %q (error %v), want %q", got, res.IsError, want)
+	}
+	if seen := api.requests(); len(seen) != 1 || seen[0].Method != http.MethodGet {
+		t.Errorf("requests = %+v, want only the recipe lookup", seen)
+	}
+}
+
 func TestMealplansWrite_BulkCreateStopsOnMealieFailure(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodPost, mealplansEndpoint, http.StatusUnprocessableEntity, `{"detail":"bad"}`)

@@ -215,6 +215,9 @@ func mergedObject(ctx context.Context, s *session, path string, fields map[strin
 	if err := json.Unmarshal(raw, &current); err != nil {
 		return nil, fmt.Errorf("reading %s before the update: %w", path, err)
 	}
+	if current == nil {
+		return nil, fmt.Errorf("reading %s before the update: Mealie returned no object", path)
+	}
 	merged := make(map[string]any, len(current)+len(fields))
 	for key, value := range current {
 		merged[key] = value
@@ -239,13 +242,10 @@ func trimmed(raw json.RawMessage, full bool) (any, error) {
 }
 
 func ok(raw json.RawMessage) any {
-	if len(raw) == 0 {
-		return map[string]bool{"ok": true}
-	}
 	if trimmedBody, err := view.Trim(raw); err == nil {
 		return trimmedBody
 	}
-	return raw
+	return map[string]bool{"ok": true}
 }
 
 func updateRaw(ctx context.Context, s *session, action, prefix, id string, fields map[string]any) (json.RawMessage, error) {
