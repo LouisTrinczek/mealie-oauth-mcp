@@ -185,3 +185,41 @@ func TestSetup_UnreachableCollectorDoesNotBlock(t *testing.T) {
 		t.Errorf("shutdown took %v", elapsed)
 	}
 }
+
+func TestMiddleware_DefaultsStatusToOKWhenHandlerNeverWritesHeader(t *testing.T) {
+	tp, exporter := recordingProvider()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /body", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("hi")) })
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/body", nil)
+	Middleware(tp)(mux).ServeHTTP(httptest.NewRecorder(), req)
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(spans))
+	}
+	if spans[0].Status.Code != codes.Unset {
+		t.Errorf("code = %v, want Unset", spans[0].Status.Code)
+	}
+	for _, attr := range spans[0].Attributes {
+		if attr.Key == "http.response.status_code" && attr.Value.AsInt64() != http.StatusOK {
+			t.Errorf("status_code = %d, want 200", attr.Value.AsInt64())
+			return
+		}
+	}
+}
+
+func TestMiddleware_MalformedTraceparentStartsRootSpan(t *testing.T) {
+	tp, exporter := recordingProvider()
+	serve(t, tp, "GET /x", http.StatusOK, "/x", http.Header{"Traceparent": {"garbage"}})
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(spans))
+	}
+	if spans[0].Parent.IsValid() {
+		t.Errorf("parent = %v, want none", spans[0].Parent)
+	}
+	if !spans[0].SpanContext.TraceID().IsValid() {
+		t.Error("trace id is not valid")
+	}
+}
