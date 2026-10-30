@@ -55,6 +55,7 @@ func New(d Deps) (*mcp.Server, error) {
 	}, whoami{tokens: d.Tokens, mealie: d.Mealie}.handle)
 	return srv, errors.Join(
 		addAccountRead(srv, d),
+		addRecipesRead(srv, d),
 	)
 }
 
