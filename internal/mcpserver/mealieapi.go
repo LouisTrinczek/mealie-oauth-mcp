@@ -44,7 +44,7 @@ func addMealieAPI(srv *mcp.Server, d Deps) error {
 		if err != nil {
 			return nil, nil, err
 		}
-		if in.Full {
+		if in.Full && len(raw) > 0 {
 			return textResult(raw)
 		}
 		return textResult(ok(raw))

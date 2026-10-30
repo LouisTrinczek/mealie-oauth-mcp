@@ -21,10 +21,11 @@ var update = flag.Bool("update", false, "rewrite golden files")
 const statusUnregistered = 599
 
 type seenRequest struct {
-	Method string
-	Path   string
-	Query  url.Values
-	Body   string
+	Method   string
+	Path     string
+	Query    url.Values
+	RawQuery string
+	Body     string
 }
 
 type cannedResponse struct {
@@ -75,7 +76,7 @@ func (a *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.EscapedPath()
 	a.mu.Lock()
-	a.seen = append(a.seen, seenRequest{Method: r.Method, Path: path, Query: r.URL.Query(), Body: string(body)})
+	a.seen = append(a.seen, seenRequest{Method: r.Method, Path: path, Query: r.URL.Query(), RawQuery: r.URL.RawQuery, Body: string(body)})
 	key := r.Method + " " + path
 	response, found := a.routes[key]
 	if queue := a.queued[key]; len(queue) > 0 {

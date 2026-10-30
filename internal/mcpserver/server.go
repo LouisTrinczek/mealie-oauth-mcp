@@ -52,7 +52,7 @@ func New(d Deps) (*mcp.Server, error) {
 		Name:        "whoami",
 		Description: "Show which Mealie user this connection acts as, including household and group.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
-	}, whoami{tokens: d.Tokens, mealie: d.Mealie}.handle)
+	}, whoami{deps: d}.handle)
 	return srv, errors.Join(
 		addAccountRead(srv, d),
 		addRecipesRead(srv, d),
@@ -83,19 +83,17 @@ type whoamiOutput struct {
 }
 
 type whoami struct {
-	tokens TokenSource
-	mealie MealieClient
+	deps Deps
 }
 
 func (w whoami) handle(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, whoamiOutput, error) {
-	info := tokenInfo(req)
-	tok, err := w.tokens.MealieToken(ctx, info)
+	s, err := openSession(ctx, w.deps, req)
 	if err != nil {
-		return nil, whoamiOutput{}, tokenFailure(err)
+		return nil, whoamiOutput{}, err
 	}
-	user, err := w.mealie.Self(ctx, tok)
+	user, err := s.self(ctx)
 	if err != nil {
-		return nil, whoamiOutput{}, w.profileFailure(ctx, info, err)
+		return nil, whoamiOutput{}, err
 	}
 	return nil, whoamiOutput{
 		Username:  user.Username,
@@ -105,18 +103,6 @@ func (w whoami) handle(ctx context.Context, req *mcp.CallToolRequest, _ struct{}
 		Group:     user.GroupSlug,
 		Admin:     user.Admin,
 	}, nil
-}
-
-func (w whoami) profileFailure(ctx context.Context, info *auth.TokenInfo, err error) error {
-	switch {
-	case mealie.IsUnauthorized(err):
-		w.tokens.ReportUnauthorized(ctx, info)
-		return errSessionEnded
-	case mealie.IsUnavailable(err):
-		return errMealieUnavailable
-	default:
-		return errProfileUnreadable
-	}
 }
 
 func tokenFailure(err error) error {

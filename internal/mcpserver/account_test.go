@@ -1,9 +1,12 @@
 package mcpserver
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -76,4 +79,46 @@ func TestAccountRead_HouseholdsReportsMealieErrors(t *testing.T) {
 
 	requireToolError(t, callTool(t, cs, "account_read", map[string]any{"action": "households"}),
 		"Your Mealie user is not allowed to do this (403): no.")
+}
+
+func TestAccountRead_FullReturnsRawObject(t *testing.T) {
+	tests := []struct {
+		action string
+		path   string
+		body   string
+	}{
+		{"household", "/api/households/self", "{\n  \"id\": \"h-1\",\n  \"name\": \"Family\",\n  \"extra\": null,\n  \"webhooks\": []\n}"},
+		{"group", "/api/groups/self", "{\n  \"id\": \"g-1\",\n  \"name\": \"Home\",\n  \"categories\": []\n}"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			api := newFakeMealie(t)
+			api.on(http.MethodGet, tt.path, http.StatusOK, tt.body)
+			cs := connectTools(t, api)
+
+			res := callTool(t, cs, "account_read", map[string]any{"action": tt.action, "full": true})
+			if res.IsError {
+				t.Fatalf("tool error: %s", resultText(t, res))
+			}
+			var want bytes.Buffer
+			if err := json.Compact(&want, []byte(tt.body)); err != nil {
+				t.Fatalf("compacting fake body: %v", err)
+			}
+			if got := resultText(t, res); got != want.String() {
+				t.Errorf("text = %q, want %q", got, want.String())
+			}
+		})
+	}
+}
+
+func TestAccountRead_KeepsHTMLCharacters(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/households/self", http.StatusOK, `{"id":"h-1","name":"A & B"}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "account_read", map[string]any{"action": "household"})
+
+	if got := resultText(t, res); !strings.Contains(got, `"name":"A & B"`) {
+		t.Errorf("text = %q, want the name A & B unescaped", got)
+	}
 }

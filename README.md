@@ -160,7 +160,7 @@ ChatGPT, Cursor, and VS Code should work but are untested.
 | Tool | Actions |
 |---|---|
 | `whoami` | none |
-| `account_read` | `household`, `group`, `households` |
+| `account_read` | `household`, `group` (both accept `full`), `households` |
 | `recipes_read` | `search`, `get`, `suggest` |
 | `recipes_write` | `create`, `import_url`, `update`, `duplicate`, `delete`, `mark_made`, `set_image_url`, `add_asset_url`, `share`, `bulk_tag`, `bulk_categorize`, `bulk_delete` |
 | `history_read` | `timeline` |

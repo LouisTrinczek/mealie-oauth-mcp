@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -300,20 +301,28 @@ func TestWhoami_WithoutTokenInfoEndsSession(t *testing.T) {
 }
 
 func TestWhoami_OtherErrorsAreGeneric(t *testing.T) {
-	profile := &fakeMealie{err: &mealie.APIError{Status: http.StatusForbidden, Message: "Bearer eyJhbGciOi.leak.sig"}}
+	profile := &fakeMealie{err: errors.New("dial with Bearer eyJhbGciOi.leak.sig")}
 	cs := connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile})
 
 	res := callWhoami(t, cs)
-	requireToolError(t, res, "Could not read your Mealie profile. Try again.")
+	requireToolError(t, res, string(errRequestFailed))
 	raw, err := json.Marshal(res)
 	if err != nil {
 		t.Fatalf("marshal result: %v", err)
 	}
-	for _, leak := range []string{"eyJ", "Bearer", "403", testMealieToken} {
+	for _, leak := range []string{"eyJ", "Bearer", testMealieToken} {
 		if strings.Contains(string(raw), leak) {
 			t.Errorf("tool result leaks %q", leak)
 		}
 	}
+}
+
+func TestWhoami_EmptyUserIDIsUnreadable(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/users/self", http.StatusOK, `{"username":"a"}`)
+	cs := connectTools(t, api)
+
+	requireToolError(t, callWhoami(t, cs), string(errProfileUnreadable))
 }
 
 func TestWhoami_Annotations(t *testing.T) {

@@ -60,6 +60,9 @@ func (s *session) self(ctx context.Context) (mealie.User, error) {
 	if err != nil {
 		return mealie.User{}, s.failure(ctx, http.MethodGet, err)
 	}
+	if user.ID == "" {
+		return mealie.User{}, errProfileUnreadable
+	}
 	return user, nil
 }
 

@@ -168,7 +168,7 @@ func TestMealieAPI_RejectsMethodOutsideEnum(t *testing.T) {
 	}
 }
 
-func TestMealieAPI_RedactsErrorBody(t *testing.T) {
+func TestMealieAPI_RedactsTokens(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodPost, "/api/recipes", http.StatusBadRequest, `{"detail":"bad Bearer abc.def"}`)
 	cs := connectTools(t, api)
@@ -176,8 +176,9 @@ func TestMealieAPI_RedactsErrorBody(t *testing.T) {
 	res := callTool(t, cs, "mealie_api", map[string]any{"method": "POST", "path": "/api/recipes", "body": "x"})
 
 	got := resultText(t, res)
-	if !res.IsError || !strings.Contains(got, "[REDACTED]") || strings.Contains(got, "abc.def") {
-		t.Errorf("result = %q (error %v), want a redacted rejection", got, res.IsError)
+	want := "Mealie rejected the request (400): bad [REDACTED]. Fix the arguments and try again."
+	if !res.IsError || got != want {
+		t.Errorf("result = %q (error %v), want %q", got, res.IsError, want)
 	}
 }
 
@@ -198,5 +199,40 @@ func TestAddSingleTool_SchemaError(t *testing.T) {
 	err := addSingleTool[channelInput](srv, &mcp.Tool{Name: "broken"}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "inferring") {
 		t.Errorf("addSingleTool error = %v, want an inferring error", err)
+	}
+}
+
+func TestMealieAPI_FullEmptyBodyIsOK(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodDelete, "/api/comments/abc", http.StatusNoContent, "")
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealie_api", map[string]any{"method": "DELETE", "path": "/api/comments/abc", "full": true})
+
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %q (error %v), want {\"ok\":true}", got, res.IsError)
+	}
+}
+
+func TestMealieAPI_HostileQueryIsEscaped(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/recipes", http.StatusOK, `{}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealie_api", map[string]any{
+		"method": "GET",
+		"path":   "/api/recipes",
+		"query":  map[string]any{"a&b": "c=d", "x": "1#frag"},
+	})
+
+	if res.IsError {
+		t.Fatalf("tool error: %s", resultText(t, res))
+	}
+	seen := api.requests()
+	if len(seen) != 1 || seen[0].Path != "/api/recipes" {
+		t.Fatalf("requests = %+v, want one GET /api/recipes", seen)
+	}
+	if want := "a%26b=c%3Dd&x=1%23frag"; seen[0].RawQuery != want {
+		t.Errorf("RawQuery = %q, want %q", seen[0].RawQuery, want)
 	}
 }

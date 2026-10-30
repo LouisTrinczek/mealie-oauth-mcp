@@ -215,7 +215,7 @@ func TestFeedbackWrite_SelfFailures(t *testing.T) {
 		cs := connectTools(t, api)
 
 		res := callTool(t, cs, "feedback_write", map[string]any{"action": "favorite", "slug": "soup"})
-		requireToolError(t, res, `"" is not a valid slug or id.`)
+		requireToolError(t, res, string(errProfileUnreadable))
 	})
 }
 
