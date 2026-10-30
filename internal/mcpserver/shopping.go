@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -98,7 +99,7 @@ func listView(raw json.RawMessage) (any, error) {
 type shoppingItem struct {
 	ID       string  `json:"id,omitempty" jsonschema:"update_items: item id."`
 	Note     string  `json:"note,omitempty" jsonschema:"Free-text item, e.g. 2 lemons."`
-	Display  string  `json:"display,omitempty" jsonschema:"Text shown for the item."`
+	Display  string  `json:"display,omitempty" jsonschema:"Item text, saved as the note when note is empty (Mealie derives the shown text itself)."`
 	Quantity float64 `json:"quantity,omitempty" jsonschema:"Quantity of the item."`
 	Checked  *bool   `json:"checked,omitempty" jsonschema:"update_items: true to check the item off, false to uncheck it."`
 	FoodID   string  `json:"foodId,omitempty" jsonschema:"Food id."`
@@ -160,7 +161,6 @@ func deleteShoppingList(ctx context.Context, s *session, in shoppingWriteInput) 
 type newShoppingItem struct {
 	ShoppingListID string  `json:"shoppingListId"`
 	Note           string  `json:"note"`
-	Display        string  `json:"display,omitempty"`
 	Quantity       float64 `json:"quantity,omitempty"`
 	FoodID         string  `json:"foodId,omitempty"`
 	UnitID         string  `json:"unitId,omitempty"`
@@ -185,8 +185,7 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 		}
 		body = append(body, newShoppingItem{
 			ShoppingListID: in.ListID,
-			Note:           item.Note,
-			Display:        item.Display,
+			Note:           itemNote(item),
 			Quantity:       item.Quantity,
 			FoodID:         item.FoodID,
 			UnitID:         item.UnitID,
@@ -199,10 +198,14 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 	return fetchListView(ctx, s, listPath)
 }
 
+func itemNote(item shoppingItem) string {
+	return cmp.Or(item.Note, item.Display)
+}
+
 func itemChanges(item shoppingItem) map[string]any {
 	changes := map[string]any{}
 	for key, value := range map[string]string{
-		"note": item.Note, "display": item.Display, "foodId": item.FoodID, "unitId": item.UnitID, "labelId": item.LabelID,
+		"note": itemNote(item), "foodId": item.FoodID, "unitId": item.UnitID, "labelId": item.LabelID,
 	} {
 		if value != "" {
 			changes[key] = value
