@@ -16,6 +16,8 @@ services:
       OIDC_CLIENT_SECRET: secret
       OIDC_SIGNUP_ENABLED: "true"
       OIDC_USER_CLAIM: email
+      # Admin lets the test user create organizers and foods (can_organize).
+      OIDC_ADMIN_GROUP: mealie-admins
       BASE_URL: http://mealie:9000
       TOKEN_TIME: "48"
     depends_on:
