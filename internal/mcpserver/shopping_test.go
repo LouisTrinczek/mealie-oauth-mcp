@@ -304,7 +304,7 @@ func TestShoppingTools_MealieFailures(t *testing.T) {
 		}},
 		{"update_items get", "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1"}}}, http.MethodGet, itemsBase + "/i-1", nil},
 		{"update_items put", "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1"}}}, http.MethodPut, itemsBase, func(a *fakeAPI) {
-			a.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1"}`)
+			a.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1","shoppingListId":"l-1"}`)
 		}},
 		{"delete_items", "shopping_write", map[string]any{"action": "delete_items", "ids": []any{"a"}}, http.MethodDelete, itemsBase, nil},
 		{"add_recipe recipe", "shopping_write", map[string]any{"action": "add_recipe", "listId": "l-1", "slug": "soup"}, http.MethodGet, "/api/recipes/soup", nil},
@@ -371,5 +371,102 @@ func TestShoppingWrite_RecipeActionsRejectBadListID(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func writeRequests(api *fakeAPI) []seenRequest {
+	var writes []seenRequest
+	for _, req := range api.requests() {
+		if req.Method != http.MethodGet {
+			writes = append(writes, req)
+		}
+	}
+	return writes
+}
+
+func TestShoppingWrite_UpdateItemsSendsZeroAndEmpty(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1","shoppingListId":"l-1","note":"old","quantity":3}`)
+	api.on(http.MethodPut, itemsBase, http.StatusOK, `{}`)
+	api.on(http.MethodGet, listsBase+"/l-1", http.StatusOK, shoppingListBody)
+	cs := connectTools(t, api)
+
+	callTool(t, cs, "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1", "quantity": 0, "note": ""}}})
+	wantBody := `[{"id":"i-1","note":"","quantity":0,"shoppingListId":"l-1"}]`
+	if writes := writeRequests(api); len(writes) != 1 || writes[0].Method != http.MethodPut || writes[0].Body != wantBody {
+		t.Errorf("writes = %+v, want one PUT with body %s", writes, wantBody)
+	}
+}
+
+func TestShoppingWrite_UpdateItemsOtherListRejected(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1","shoppingListId":"other"}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1", "checked": true}}})
+	requireToolError(t, res, `Item "i-1" is on another shopping list, not "l-1". Nothing was changed.`)
+	if writes := writeRequests(api); len(writes) != 0 {
+		t.Errorf("writes = %+v, want none", writes)
+	}
+}
+
+func TestShoppingWrite_UpdateItemsDuplicateIDs(t *testing.T) {
+	api := newFakeMealie(t)
+	cs := connectTools(t, api)
+
+	items := []any{map[string]any{"id": "i-1", "checked": true}, map[string]any{"id": "i-1", "checked": false}}
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": items})
+	requireToolError(t, res, `Item "i-1" appears more than once. Nothing was changed.`)
+	if seen := api.requests(); len(seen) != 0 {
+		t.Errorf("requests = %+v, want none", seen)
+	}
+}
+
+func TestShoppingWrite_UpdateItemsSecondGetFails(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1","shoppingListId":"l-1"}`)
+	api.on(http.MethodGet, itemsBase+"/i-2", http.StatusInternalServerError, `{"detail":"boom"}`)
+	cs := connectTools(t, api)
+
+	items := []any{map[string]any{"id": "i-1", "checked": true}, map[string]any{"id": "i-2", "checked": true}}
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": items})
+	requireToolError(t, res, string(errMealieUnavailable))
+	if writes := writeRequests(api); len(writes) != 0 {
+		t.Errorf("writes = %+v, want none", writes)
+	}
+}
+
+func TestShoppingWrite_AddItemsRejectsID(t *testing.T) {
+	api := newFakeMealie(t)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "add_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1", "note": "milk"}}})
+	requireToolError(t, res, `Action "add_items" creates new items, so leave out id. Use update_items to change an existing item.`)
+	if seen := api.requests(); len(seen) != 0 {
+		t.Errorf("requests = %+v, want none", seen)
+	}
+}
+
+func TestShoppingWrite_AddItemsSendsChecked(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodPost, itemsBase+"/create-bulk", http.StatusOK, `{}`)
+	api.on(http.MethodGet, listsBase+"/l-1", http.StatusOK, shoppingListBody)
+	cs := connectTools(t, api)
+
+	callTool(t, cs, "shopping_write", map[string]any{"action": "add_items", "listId": "l-1", "items": []any{map[string]any{"note": "milk", "checked": true}}})
+	wantBody := `[{"shoppingListId":"l-1","note":"milk","checked":true}]`
+	if writes := writeRequests(api); len(writes) != 1 || writes[0].Body != wantBody {
+		t.Errorf("writes = %+v, want one POST with body %s", writes, wantBody)
+	}
+}
+
+func TestShoppingWrite_RecipeBadListIDMakesNoRequest(t *testing.T) {
+	api := newFakeMealie(t)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "add_recipe", "listId": "../x", "slug": "soup"})
+	requireToolError(t, res, `"../x" is not a valid slug or id.`)
+	if seen := api.requests(); len(seen) != 0 {
+		t.Errorf("requests = %+v, want none", seen)
 	}
 }

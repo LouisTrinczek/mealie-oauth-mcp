@@ -97,14 +97,14 @@ func listView(raw json.RawMessage) (any, error) {
 }
 
 type shoppingItem struct {
-	ID       string  `json:"id,omitempty" jsonschema:"update_items: item id."`
-	Note     string  `json:"note,omitempty" jsonschema:"Free-text item, e.g. 2 lemons."`
-	Display  string  `json:"display,omitempty" jsonschema:"add_items only: item text, saved as the note when note is empty (Mealie derives the shown text itself). update_items ignores it; change note instead."`
-	Quantity float64 `json:"quantity,omitempty" jsonschema:"Quantity of the item."`
-	Checked  *bool   `json:"checked,omitempty" jsonschema:"update_items: true to check the item off, false to uncheck it."`
-	FoodID   string  `json:"foodId,omitempty" jsonschema:"Food id."`
-	UnitID   string  `json:"unitId,omitempty" jsonschema:"Unit id."`
-	LabelID  string  `json:"labelId,omitempty" jsonschema:"Label id."`
+	ID       string   `json:"id,omitempty" jsonschema:"update_items: item id. Leave it out for add_items."`
+	Note     *string  `json:"note,omitempty" jsonschema:"Free-text item, e.g. 2 lemons."`
+	Display  string   `json:"display,omitempty" jsonschema:"add_items only: item text, saved as the note when note is empty (Mealie derives the shown text itself). update_items ignores it; change note instead."`
+	Quantity *float64 `json:"quantity,omitempty" jsonschema:"Quantity of the item."`
+	Checked  *bool    `json:"checked,omitempty" jsonschema:"update_items: true to check the item off, false to uncheck it."`
+	FoodID   string   `json:"foodId,omitempty" jsonschema:"Food id."`
+	UnitID   string   `json:"unitId,omitempty" jsonschema:"Unit id."`
+	LabelID  string   `json:"labelId,omitempty" jsonschema:"Label id."`
 }
 
 type shoppingWriteInput struct {
@@ -128,7 +128,7 @@ func addShoppingWrite(srv *mcp.Server, d Deps) error {
 		{name: "update_list", help: "Change a shopping list. Needs id, fields.", run: updateShoppingList},
 		{name: "delete_list", help: "Delete a shopping list. Needs id.", run: deleteShoppingList},
 		{name: "add_items", help: "Add items to a list. Needs listId, items (each with note or display).", run: addShoppingItems},
-		{name: "update_items", help: "Change or check off items. Needs listId, items (each with id).", run: updateShoppingItems},
+		{name: "update_items", help: "Change or check off items. Needs listId, items (each with id). quantity 0 and an empty note are sent as given.", run: updateShoppingItems},
 		{name: "delete_items", help: "Delete items. Needs ids.", run: deleteShoppingItems},
 		{name: "add_recipe", help: "Add a recipe's ingredients to a list. Needs listId, slug. Optional: scale.", run: addListRecipe},
 		{name: "remove_recipe", help: "Remove a recipe's ingredients from a list. Needs listId, slug. Optional: scale.", run: removeListRecipe},
@@ -162,6 +162,7 @@ type newShoppingItem struct {
 	ShoppingListID string  `json:"shoppingListId"`
 	Note           string  `json:"note"`
 	Quantity       float64 `json:"quantity,omitempty"`
+	Checked        bool    `json:"checked,omitempty"`
 	FoodID         string  `json:"foodId,omitempty"`
 	UnitID         string  `json:"unitId,omitempty"`
 	LabelID        string  `json:"labelId,omitempty"`
@@ -180,13 +181,18 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 	}
 	body := make([]newShoppingItem, 0, len(in.Items))
 	for _, item := range in.Items {
-		if item.Note == "" && item.Display == "" {
+		if item.ID != "" {
+			return nil, toolFailure(`Action "add_items" creates new items, so leave out id. Use update_items to change an existing item.`)
+		}
+		note := cmp.Or(deref(item.Note), item.Display)
+		if note == "" {
 			return nil, toolFailure(`Action "add_items" needs note or display on every item.`)
 		}
 		body = append(body, newShoppingItem{
 			ShoppingListID: in.ListID,
-			Note:           cmp.Or(item.Note, item.Display),
-			Quantity:       item.Quantity,
+			Note:           note,
+			Quantity:       deref(item.Quantity),
+			Checked:        deref(item.Checked),
 			FoodID:         item.FoodID,
 			UnitID:         item.UnitID,
 			LabelID:        item.LabelID,
@@ -198,17 +204,28 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 	return fetchListView(ctx, s, listPath)
 }
 
+func deref[T any](value *T) T {
+	var zero T
+	if value == nil {
+		return zero
+	}
+	return *value
+}
+
 func itemChanges(item shoppingItem) map[string]any {
 	changes := map[string]any{}
+	if item.Note != nil {
+		changes["note"] = *item.Note
+	}
 	for key, value := range map[string]string{
-		"note": item.Note, "foodId": item.FoodID, "unitId": item.UnitID, "labelId": item.LabelID,
+		"foodId": item.FoodID, "unitId": item.UnitID, "labelId": item.LabelID,
 	} {
 		if value != "" {
 			changes[key] = value
 		}
 	}
-	if item.Quantity != 0 {
-		changes["quantity"] = item.Quantity
+	if item.Quantity != nil {
+		changes["quantity"] = *item.Quantity
 	}
 	if item.Checked != nil {
 		changes["checked"] = *item.Checked
@@ -223,10 +240,15 @@ func updateShoppingItems(ctx context.Context, s *session, in shoppingWriteInput)
 	if len(in.Items) == 0 {
 		return nil, needPresent("update_items", "items", false)
 	}
+	seen := make(map[string]bool, len(in.Items))
 	for _, item := range in.Items {
 		if err := need("update_items", "id", item.ID); err != nil {
 			return nil, err
 		}
+		if seen[item.ID] {
+			return nil, toolFailure(fmt.Sprintf("Item %q appears more than once. Nothing was changed.", item.ID))
+		}
+		seen[item.ID] = true
 	}
 	listPath, err := mealie.PathOf(shoppingListsPath, in.ListID)
 	if err != nil {
@@ -244,10 +266,24 @@ func updateShoppingItems(ctx context.Context, s *session, in shoppingWriteInput)
 		}
 		merged = append(merged, current)
 	}
+	for i, current := range merged {
+		if !onList(current, in.ListID) {
+			return nil, toolFailure(fmt.Sprintf("Item %q is on another shopping list, not %q. Nothing was changed.", in.Items[i].ID, in.ListID))
+		}
+	}
 	if _, err := s.call(ctx, http.MethodPut, shoppingItemsPath, nil, merged); err != nil {
 		return nil, err
 	}
 	return fetchListView(ctx, s, listPath)
+}
+
+func onList(item map[string]any, listID string) bool {
+	raw, ok := item["shoppingListId"].(json.RawMessage)
+	if !ok {
+		return false
+	}
+	var current string
+	return json.Unmarshal(raw, &current) == nil && current == listID
 }
 
 func deleteShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (any, error) {
@@ -277,6 +313,9 @@ func listRecipeTarget(ctx context.Context, s *session, action string, in shoppin
 		return "", err
 	}
 	if err := need(action, "slug", in.Slug); err != nil {
+		return "", err
+	}
+	if err := mealie.CheckSegment(in.ListID); err != nil {
 		return "", err
 	}
 	return recipeID(ctx, s, in.Slug)
