@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -132,7 +133,7 @@ func TestSession_MapsClientErrors(t *testing.T) {
 		{"BadSegment", &mealie.SegmentError{Value: "a/b"}, `"a/b" is not a valid slug or id.`},
 		{"Unavailable", mealie.ErrUnavailable, "Mealie is unavailable right now. Try again shortly."},
 		{"BadRequest", &mealie.APIError{Status: http.StatusBadRequest, Message: "msg"}, "Mealie rejected the request (400): msg. Fix the arguments and try again."},
-		{"Other", errors.New("transport failed: Bearer " + testMealieToken), "Mealie request failed. Try again."},
+		{"Other", errors.New("transport failed: Bearer " + testMealieToken), "Mealie request failed."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -143,6 +144,32 @@ func TestSession_MapsClientErrors(t *testing.T) {
 			}
 			if _, err := s.self(t.Context()); err == nil || err.Error() != tt.want {
 				t.Errorf("self error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestSession_UnconfirmedWrites(t *testing.T) {
+	const unconfirmed = "Mealie did not confirm the change in time, so it may or may not have been saved. Check with a read or list action before trying again."
+	tests := []struct {
+		name   string
+		method string
+		err    error
+		want   string
+	}{
+		{"GET unavailable", http.MethodGet, mealie.ErrUnavailable, "Mealie is unavailable right now. Try again shortly."},
+		{"POST timeout", http.MethodPost, context.DeadlineExceeded, unconfirmed},
+		{"PUT 502", http.MethodPut, &mealie.APIError{Status: http.StatusBadGateway, Message: "msg"}, unconfirmed},
+		{"PATCH unavailable", http.MethodPatch, mealie.ErrUnavailable, unconfirmed},
+		{"DELETE 503", http.MethodDelete, &mealie.APIError{Status: http.StatusServiceUnavailable, Message: "msg"}, unconfirmed},
+		{"POST 400", http.MethodPost, &mealie.APIError{Status: http.StatusBadRequest, Message: "msg"}, "Mealie rejected the request (400): msg. Fix the arguments and try again."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := testSession(t, &fakeMealie{err: tt.err}, &fakeTokens{})
+
+			if _, err := s.call(t.Context(), tt.method, "/api/x", nil, nil); err == nil || err.Error() != tt.want {
+				t.Errorf("call error = %v, want %q", err, tt.want)
 			}
 		})
 	}

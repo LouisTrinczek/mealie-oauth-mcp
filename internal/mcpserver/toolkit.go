@@ -21,7 +21,10 @@ import (
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
 )
 
-const errRequestFailed toolFailure = "Mealie request failed. Try again."
+const (
+	errRequestFailed    toolFailure = "Mealie request failed."
+	errWriteUnconfirmed toolFailure = "Mealie did not confirm the change in time, so it may or may not have been saved. Check with a read or list action before trying again."
+)
 
 type session struct {
 	tokens TokenSource
@@ -43,7 +46,7 @@ func openSession(ctx context.Context, d Deps, req *mcp.CallToolRequest) (*sessio
 func (s *session) call(ctx context.Context, method, path string, q url.Values, body any) (json.RawMessage, error) {
 	raw, err := s.mealie.Call(ctx, s.token, method, path, q, body)
 	if err != nil {
-		return nil, s.failure(ctx, err)
+		return nil, s.failure(ctx, method, err)
 	}
 	return raw, nil
 }
@@ -51,18 +54,20 @@ func (s *session) call(ctx context.Context, method, path string, q url.Values, b
 func (s *session) self(ctx context.Context) (mealie.User, error) {
 	user, err := s.mealie.Self(ctx, s.token)
 	if err != nil {
-		return mealie.User{}, s.failure(ctx, err)
+		return mealie.User{}, s.failure(ctx, http.MethodGet, err)
 	}
 	return user, nil
 }
 
-func (s *session) failure(ctx context.Context, err error) error {
+func (s *session) failure(ctx context.Context, method string, err error) error {
 	var segment *mealie.SegmentError
 	var apiErr *mealie.APIError
 	switch {
 	case mealie.IsUnauthorized(err):
 		s.tokens.ReportUnauthorized(ctx, s.info)
 		return errSessionEnded
+	case mealie.IsUnavailable(err) && method != http.MethodGet:
+		return errWriteUnconfirmed
 	case mealie.IsUnavailable(err):
 		return errMealieUnavailable
 	case errors.As(err, &segment):
