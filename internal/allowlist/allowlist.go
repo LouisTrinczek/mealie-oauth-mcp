@@ -114,7 +114,6 @@ var rules = []rule{
 }
 
 func Check(method, rawPath string) (string, error) {
-	method = strings.ToUpper(method)
 	segments, err := plainSegments(rawPath)
 	if err != nil {
 		return "", err

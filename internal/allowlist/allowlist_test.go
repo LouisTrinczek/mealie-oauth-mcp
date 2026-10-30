@@ -71,10 +71,28 @@ func TestCheck_AllowsEveryRule(t *testing.T) {
 	}
 }
 
-func TestCheck_UppercasesMethod(t *testing.T) {
-	got, err := Check("get", "/api/recipes")
-	if err != nil || got != "/api/recipes" {
-		t.Errorf(`Check("get", "/api/recipes") = %q, %v; want "/api/recipes"`, got, err)
+func TestCheck_MethodMustBeExact(t *testing.T) {
+	for _, method := range []string{"get", "Get", "PO\u017fT"} {
+		got, err := Check(method, "/api/recipes")
+		var denied *DeniedError
+		if !errors.As(err, &denied) || got != "" {
+			t.Errorf("Check(%q, \"/api/recipes\") = %q, %v; want *DeniedError", method, got, err)
+		}
+	}
+}
+
+func TestCheck_ReservedWordsAtSecondWildcard(t *testing.T) {
+	const prefix = "/api/households/shopping/lists/abc/recipe/"
+	for _, word := range reservedWords {
+		got, err := Check("POST", prefix+word)
+		var denied *DeniedError
+		if !errors.As(err, &denied) || got != "" {
+			t.Errorf("Check(POST, %q) = %q, %v; want *DeniedError", prefix+word, got, err)
+		}
+	}
+	const id = "0b7f6e2c-5d1a-4c3b-9a8e-1f2d3c4b5a69"
+	if got, err := Check("POST", prefix+id); err != nil || got != prefix+id {
+		t.Errorf("Check(POST, %q) = %q, %v; want allowed", prefix+id, got, err)
 	}
 }
 
@@ -84,7 +102,7 @@ func TestCheck_DeniesOtherMethods(t *testing.T) {
 	}{
 		{"DELETE", "/api/recipes", "DELETE /api/recipes" + notAllowedSuffix},
 		{"PATCH", "/api/foods/x", "PATCH /api/foods/x" + notAllowedSuffix},
-		{"trace", "/api/recipes", "TRACE /api/recipes" + notAllowedSuffix},
+		{"TRACE", "/api/recipes", "TRACE /api/recipes" + notAllowedSuffix},
 		{"HEAD", "/api/users/self", "HEAD /api/users/self" + notAllowedSuffix},
 	}
 	for _, tt := range tests {
@@ -201,6 +219,11 @@ func assertSafeCanonical(t *testing.T, method, canonical string) {
 	if segments[2] == "users" && segments[3] != "self" {
 		t.Fatalf("canonical %q reaches another user", canonical)
 	}
+	for _, segment := range segments[1:] {
+		if strings.Trim(segment, ".") == "" {
+			t.Fatalf("canonical %q has a segment made only of dots", canonical)
+		}
+	}
 	for i, segment := range segments {
 		if slices.Contains(reservedWords, segment) && !literalRowAt(method, len(segments), i, segment) {
 			t.Fatalf("canonical %q matches reserved word %q through a wildcard", canonical, segment)
@@ -213,6 +236,11 @@ func FuzzCheck(f *testing.F) {
 		f.Add("GET", tt.path)
 	}
 	f.Add("GET", "/api/recipes/abc")
+	f.Add("POST", "/api/recipes/create/url")
+	f.Add("PUT", "/api/foods/merge")
+	f.Add("PATCH", "/api/recipes/abc/last-made")
+	f.Add("DELETE", "/api/recipes/abc")
+	f.Add("get", "/api/recipes")
 	f.Fuzz(func(t *testing.T, method, path string) {
 		canonical, err := Check(method, path)
 		if err != nil {
@@ -221,6 +249,6 @@ func FuzzCheck(f *testing.F) {
 		if again, err := Check(method, canonical); err != nil || again != canonical {
 			t.Fatalf("Check(%q, %q) = %q, %v; want idempotent %q", method, canonical, again, err, canonical)
 		}
-		assertSafeCanonical(t, strings.ToUpper(method), canonical)
+		assertSafeCanonical(t, method, canonical)
 	})
 }
