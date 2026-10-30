@@ -107,8 +107,7 @@ jobs:
 
   sonar:
     needs: [lint, test]
-    # SonarQube Community Edition analyzes only the main branch, so pull requests are not scanned.
-    if: github.event_name != 'pull_request'
+    if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -123,9 +122,21 @@ jobs:
           name: coverage
       - name: Compute Sonar arguments
         id: sonar
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           version=$(git describe --tags --abbrev=0 2>/dev/null || echo 0.0.0)
-          echo "args=-Dsonar.qualitygate.wait=true -Dsonar.projectVersion=$version" >> "$GITHUB_OUTPUT"
+          args="-Dsonar.qualitygate.wait=true -Dsonar.projectVersion=$version"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            args="$args -Dsonar.pullrequest.key=$PR_NUMBER -Dsonar.pullrequest.branch=$HEAD_REF -Dsonar.pullrequest.base=$BASE_REF"
+          else
+            args="$args -Dsonar.branch.name=$REF_NAME"
+          fi
+          echo "args=$args" >> "$GITHUB_OUTPUT"
       - uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
