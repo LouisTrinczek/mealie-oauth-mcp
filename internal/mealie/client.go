@@ -114,6 +114,14 @@ func (c *Client) do(ctx context.Context, tok secret.Secret, method, path string,
 	}
 }
 
+func (c *Client) Call(ctx context.Context, tok secret.Secret, method, path string, query url.Values, body any) (json.RawMessage, error) {
+	var raw json.RawMessage
+	if err := c.do(ctx, tok, method, path, query, body, &raw); err != nil {
+		return nil, fmt.Errorf("calling mealie %s %s: %w", method, path, err)
+	}
+	return raw, nil
+}
+
 func encodeBody(body any) ([]byte, error) {
 	if body == nil {
 		return nil, nil
@@ -166,7 +174,7 @@ func (c *Client) attempt(ctx context.Context, tok secret.Secret, method, target 
 	if resp.StatusCode >= http.StatusBadRequest {
 		return &APIError{Status: resp.StatusCode, Message: summarize(resp.StatusCode, raw)}
 	}
-	if out == nil {
+	if out == nil || len(raw) == 0 {
 		return nil
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
