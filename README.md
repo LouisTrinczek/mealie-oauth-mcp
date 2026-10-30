@@ -15,7 +15,7 @@ server requires an OIDC login through the identity provider Mealie already
 uses. Each connected agent acts as the Mealie user who logged in, with that
 user's permissions.
 
-> **Status:** Login and `whoami` working; Mealie tools coming.
+> **Status:** Login, `whoami` and the Mealie tools are working.
 
 ## Features
 
@@ -27,9 +27,6 @@ user's permissions.
 - Per-user sessions; agents never see a Mealie token
 - Admin endpoints are unreachable by design
 - One static binary in a multi-arch Docker image
-
-Planned: tools for everyday Mealie features (recipes, meal planner, shopping
-lists, foods, units, and more).
 
 ## Requirements
 
