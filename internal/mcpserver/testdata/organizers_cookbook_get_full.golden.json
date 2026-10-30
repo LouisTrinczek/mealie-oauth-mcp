@@ -1,1 +1,1 @@
-{"description":"Fast dinners","id":"c-1","name":"Weeknights","position":1,"public":false,"queryFilterString":"tags.name IN [\"quick\"]","slug":"weeknights"}
+{"id":"c-1","name":"Weeknights","slug":"weeknights","description":"Fast dinners","position":1,"image":null,"public":false,"queryFilterString":"tags.name IN [\"quick\"]","groupId":"g-1","householdId":"h-1"}

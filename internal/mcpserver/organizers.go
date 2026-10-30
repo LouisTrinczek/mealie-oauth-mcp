@@ -97,7 +97,7 @@ func getOrganizer(ctx context.Context, s *session, in organizersReadInput) (any,
 		return nil, err
 	}
 	if in.Full {
-		return view.Trim(raw)
+		return trimmed(raw, true)
 	}
 	var organizer map[string]any
 	if err := json.Unmarshal(raw, &organizer); err != nil {

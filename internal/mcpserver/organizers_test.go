@@ -103,9 +103,9 @@ func TestOrganizersRead_GetCompactsLinkedRecipes(t *testing.T) {
 	}
 }
 
-func TestOrganizersRead_GetFullReturnsTrimmedObject(t *testing.T) {
+func TestOrganizersRead_GetFullIsRaw(t *testing.T) {
 	api := newFakeMealie(t)
-	api.on(http.MethodGet, "/api/households/cookbooks/weeknights", http.StatusOK, cookbookBody)
+	api.on(http.MethodGet, "/api/households/cookbooks/weeknights", http.StatusOK, strings.Replace(cookbookBody, `"position":1`, `"position":1,"image":null`, 1))
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "organizers_read", map[string]any{"action": "get", "kind": "cookbooks", "slug": "weeknights", "full": true})
@@ -130,6 +130,29 @@ func TestOrganizersRead_GetNeedsSlugOrID(t *testing.T) {
 	res := callTool(t, cs, "organizers_read", map[string]any{"action": "get", "kind": "tags"})
 	if got, want := resultText(t, res), `Action "get" needs slug or id.`; !res.IsError || got != want {
 		t.Errorf("result = %q (error %v), want %q", got, res.IsError, want)
+	}
+}
+
+func TestOrganizers_UnsafeIDsMakeNoRequest(t *testing.T) {
+	tests := []struct {
+		name, tool string
+		args       map[string]any
+	}{
+		{"get", "organizers_read", map[string]any{"action": "get", "kind": "tags", "id": "../x"}},
+		{"update", "organizers_write", map[string]any{"action": "update", "kind": "tags", "id": "../x", "fields": map[string]any{"name": "X"}}},
+		{"delete", "organizers_write", map[string]any{"action": "delete", "kind": "tags", "id": "../x"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
+
+			res := callTool(t, cs, tt.tool, tt.args)
+			requireToolError(t, res, `"../x" is not a valid slug or id.`)
+			if seen := api.requests(); len(seen) != 0 {
+				t.Errorf("requests = %+v, want none", seen)
+			}
+		})
 	}
 }
 
@@ -241,6 +264,26 @@ func TestOrganizers_MealieFailures(t *testing.T) {
 			if got := resultText(t, res); !res.IsError || !strings.HasPrefix(got, "Mealie could not find that (404)") {
 				t.Errorf("result = %q (error %v), want a 404 failure", got, res.IsError)
 			}
+		})
+	}
+}
+
+func TestOrganizersWrite_ReportsMealieFailures(t *testing.T) {
+	tests := []struct {
+		name, method, path, want string
+		args                     map[string]any
+	}{
+		{"update", http.MethodGet, "/api/organizers/tags/t-1", string(errMealieUnavailable), map[string]any{"action": "update", "kind": "tags", "id": "t-1", "fields": map[string]any{"name": "X"}}},
+		{"delete", http.MethodDelete, "/api/organizers/tags/t-1", string(errWriteUnconfirmed), map[string]any{"action": "delete", "kind": "tags", "id": "t-1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := newFakeMealie(t)
+			api.on(tt.method, tt.path, http.StatusInternalServerError, `{"detail":"boom"}`)
+			cs := connectTools(t, api)
+
+			res := callTool(t, cs, "organizers_write", tt.args)
+			requireToolError(t, res, tt.want)
 		})
 	}
 }
