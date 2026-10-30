@@ -1,0 +1,80 @@
+-- +goose Up
+CREATE TABLE clients (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL CHECK (source IN ('dcr', 'cimd')),
+    name TEXT NOT NULL,
+    redirect_uris TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    metadata_fetched_at INTEGER
+);
+
+CREATE TABLE pending_auths (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    client_state TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    browser_binding_hash BLOB NOT NULL,
+    upstream_state_hash BLOB UNIQUE,
+    upstream_verifier TEXT NOT NULL,
+    upstream_nonce TEXT NOT NULL,
+    mealie_user_id TEXT,
+    mealie_username TEXT,
+    mealie_token_ct BLOB,
+    mealie_token_expires_at INTEGER,
+    mealie_token_lifetime_s INTEGER,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    mealie_user_id TEXT NOT NULL,
+    mealie_username TEXT NOT NULL,
+    mealie_token_ct BLOB NOT NULL,
+    mealie_token_expires_at INTEGER NOT NULL,
+    mealie_token_lifetime_s INTEGER NOT NULL,
+    resource TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    last_used_at INTEGER NOT NULL,
+    revoked_at INTEGER
+);
+
+CREATE TABLE auth_codes (
+    hash BLOB PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    client_id TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER
+);
+
+CREATE TABLE access_tokens (
+    hash BLOB PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE TABLE refresh_tokens (
+    hash BLOB PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER
+);
+
+CREATE TABLE consents (
+    mealie_user_id TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    granted_at INTEGER NOT NULL,
+    PRIMARY KEY (mealie_user_id, client_id)
+);
+
+CREATE INDEX sessions_expires_at ON sessions (expires_at);
+CREATE INDEX access_tokens_session_id ON access_tokens (session_id);
+CREATE INDEX refresh_tokens_session_id ON refresh_tokens (session_id);
+CREATE INDEX pending_auths_expires_at ON pending_auths (expires_at);

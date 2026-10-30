@@ -1,0 +1,124 @@
+version: "2"
+
+run:
+  build-tags:
+    - integration
+
+output:
+  formats:
+    text:
+      path: stdout
+    checkstyle:
+      path: golangci-report.xml
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosec
+    - revive
+    - bodyclose
+    - noctx
+    - errorlint
+    - contextcheck
+    - misspell
+    - gocritic
+    - nolintlint
+    - gocognit
+    - dupl
+    - unparam
+    - depguard
+  exclusions:
+    rules:
+      # The browser-binding cookie drops Secure only when PUBLIC_URL is plain http (Config.SecureCookies).
+      - path: internal/oauth/authorize\.go
+        linters:
+          - gosec
+        text: G124
+      # Client redirects target only URIs that passed MatchRedirectURI; authorize tests pin this.
+      - path: internal/oauth/errors\.go
+        linters:
+          - gosec
+        text: G710
+  settings:
+    gocognit:
+      min-complexity: 20
+    dupl:
+      threshold: 100
+    nolintlint:
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    gosec:
+      excludes:
+        - G104
+    depguard:
+      rules:
+        no-insecure-rand:
+          files:
+            - $all
+            - "!$test"
+          deny:
+            - pkg: math/rand
+              desc: use crypto/rand
+            - pkg: math/rand/v2
+              desc: use crypto/rand
+        no-std-log:
+          list-mode: lax
+          files:
+            - $all
+          allow:
+            - log/slog
+          deny:
+            - pkg: log
+              desc: use log/slog
+        wiring-only:
+          files:
+            - $all
+            - "!**/cmd/**"
+            - "!**/internal/app/**"
+            - "!**/test/integration/**"
+          deny:
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/app
+              desc: only cmd and internal/app wire packages together
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/oauth
+              desc: only internal/app wires this package
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/session
+              desc: only internal/app wires this package
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/mcpserver
+              desc: only internal/app wires this package
+        tools-through-session:
+          files:
+            - "**/internal/mcpserver/**"
+          deny:
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/store
+              desc: tools reach Mealie tokens only through the session manager
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal/tokencrypt
+              desc: tools reach Mealie tokens only through the session manager
+        leaf-packages:
+          list-mode: lax
+          files:
+            - "**/internal/secret/**"
+            - "**/internal/token/**"
+            - "**/internal/store/**"
+            - "**/internal/obs/**"
+            - "**/internal/httpx/**"
+          allow:
+            - github.com/louistrinczek/mealie-oauth-mcp/internal/secret
+            - github.com/louistrinczek/mealie-oauth-mcp/internal/obs
+          deny:
+            - pkg: github.com/louistrinczek/mealie-oauth-mcp/internal
+              desc: leaf packages import only secret and obs
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

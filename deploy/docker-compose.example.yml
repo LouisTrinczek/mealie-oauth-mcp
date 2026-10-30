@@ -1,0 +1,24 @@
+services:
+  mealie-oauth-mcp:
+    image: ghcr.io/example/mealie-oauth-mcp:latest
+    read_only: true
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      ENCRYPTION_KEYS_FILE: /run/secrets/mcp_encryption_keys
+      # Required behind the reverse proxy; set it in .env (see .env.example) or
+      # here, to the subnet the proxy connects from (see README, Deployment).
+      # TRUSTED_PROXIES: 172.18.0.0/16
+    secrets:
+      - mcp_encryption_keys
+    volumes:
+      - mcp-data:/data
+    # No published port: put a reverse proxy that terminates TLS in front of
+    # this service and forward to mealie-oauth-mcp:8080.
+
+secrets:
+  mcp_encryption_keys:
+    file: ./mcp_encryption_keys.txt
+
+volumes:
+  mcp-data:

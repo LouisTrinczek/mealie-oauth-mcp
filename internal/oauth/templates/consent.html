@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Allow access to Mealie?</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5; }
+.unverified { color: #a40000; font-weight: bold; }
+button { font-size: 1rem; padding: 0.5rem 1.5rem; margin-right: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>Allow access to Mealie?</h1>
+<p><strong>{{.ClientName}}</strong>{{if not .Verified}} <span class="unverified">(not verified)</span>{{end}} wants to use Mealie as <strong>{{.Username}}</strong>.</p>
+<p>If you allow it, you return to <strong>{{.RedirectHost}}</strong>.</p>
+<p>Only allow this if you just started a login from your AI app.</p>
+<form method="post" action="{{.Action}}">
+<input type="hidden" name="pending_id" value="{{.PendingID}}">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<button type="submit" name="decision" value="allow">Allow</button>
+<button type="submit" name="decision" value="deny">Deny</button>
+</form>
+</body>
+</html>

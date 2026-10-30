@@ -21,7 +21,7 @@ disagree, say so instead of silently picking one.
   before introducing a new pattern.
 - Touch only what you must. Clean up only what you changed; leave unrelated
   code alone.
-- Never commit or push without explicit user approval.
+- Never push without explicit user approval.
 - Keep responsibilities separated: one package, file, and function per
   concern.
 
@@ -33,6 +33,9 @@ disagree, say so instead of silently picking one.
 - Vet: `go vet ./...`
 - Format: `gofmt -l -w .`
 - Tidy modules: `go mod tidy`
+- Lint: `make lint` (golangci-lint, pinned as a Go tool)
+- Vulnerabilities: `make vuln` (govulncheck)
+- Coverage gate: `make cover` (per-package minimums in `.coverage-thresholds`)
 
 Before calling a change done, run `gofmt -l .` (no output expected),
 `go vet ./...`, and `go test -race ./...`, and report the result.
@@ -47,6 +50,11 @@ rejects commits with unformatted Go files; enable it once per clone with
   `run(ctx)`. No business logic.
 - `internal/`: all other packages. There is no `pkg/`; nothing here is a
   public library.
+  Current packages: `app` (wiring, routes, startup checks), `audit`,
+  `codestyle` (no-comments test), `config`, `httpx` (middleware, rate
+  limiting), `mcpserver`, `mealie` (API client), `oauth`, `obs` (logging),
+  `secret`, `session`, `store` (SQLite), `token`, `tokencrypt`.
+- `deploy/`: example Compose file for self-hosters.
 - Create a package when there is code for it, not ahead of time. Name packages
   by what they provide (`oauth`, `mealie`, `store`), never `util` or `common`.
 

@@ -1,0 +1,42 @@
+services:
+  mock-oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:6.1.4@sha256:647dd8c78a54f0e6fcd58d79c884e612f8f998a0662276f3e1db22e464a50192
+    environment:
+      JSON_CONFIG_PATH: /config/mock-oidc.json
+    volumes:
+      - ./mock-oidc.json:/config/mock-oidc.json:ro
+
+  mealie:
+    # The default carries the digest; CI's latest run replaces the whole tag.
+    image: ghcr.io/mealie-recipes/mealie:${MEALIE_VERSION:-v3.29.0@sha256:78eb28b8776d0bad40c5e605c72b3f4f5976793e491558c7dcbdfc04c835d4bc}
+    environment:
+      OIDC_AUTH_ENABLED: "true"
+      OIDC_CONFIGURATION_URL: http://mock-oidc:8080/default/.well-known/openid-configuration
+      OIDC_CLIENT_ID: mealie
+      OIDC_CLIENT_SECRET: secret
+      OIDC_SIGNUP_ENABLED: "true"
+      OIDC_USER_CLAIM: email
+      BASE_URL: http://mealie:9000
+      TOKEN_TIME: "48"
+    depends_on:
+      mock-oidc:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:9000/api/app/about"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  it:
+    image: golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b
+    hostname: it
+    working_dir: /src
+    volumes:
+      - ../..:/src:ro
+    command: go test -tags integration -race -count=1 ./test/integration/
+    depends_on:
+      mock-oidc:
+        condition: service_started
+      mealie:
+        condition: service_healthy

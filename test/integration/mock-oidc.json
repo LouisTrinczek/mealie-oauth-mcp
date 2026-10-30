@@ -1,0 +1,20 @@
+{
+  "interactiveLogin": false,
+  "tokenCallbacks": [
+    {
+      "issuerId": "default",
+      "requestMappings": [
+        {
+          "requestParam": "grant_type",
+          "match": "*",
+          "claims": {
+            "email": "it-user@example.com",
+            "email_verified": true,
+            "preferred_username": "ituser",
+            "name": "IT User"
+          }
+        }
+      ]
+    }
+  ]
+}
