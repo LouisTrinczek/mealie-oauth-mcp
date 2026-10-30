@@ -451,6 +451,18 @@ func TestMealplansWrite_UpdateMerges(t *testing.T) {
 	}
 }
 
+func TestMealplansWrite_UpdateUnreadableReplyStillSucceeds(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, mealplansEndpoint+"/5", http.StatusOK, `{"id":5,"date":"2026-10-31","entryType":"dinner"}`)
+	api.on(http.MethodPut, mealplansEndpoint+"/5", http.StatusOK, `[]`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "update", "id": "5", "fields": map[string]any{"date": "2026-11-02"}})
+	if got := resultText(t, res); res.IsError || got != `{"ok":true}` {
+		t.Errorf("result = %s (error %v), want {\"ok\":true}", got, res.IsError)
+	}
+}
+
 func TestMealplansWrite_DeleteReturnsOKForAnyBody(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodDelete, mealplansEndpoint+"/5", http.StatusOK, entryBodyJSON)
