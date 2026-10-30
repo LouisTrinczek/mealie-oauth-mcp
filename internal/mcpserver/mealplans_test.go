@@ -101,9 +101,7 @@ func TestMealplansRead_TodayRejectsNonList(t *testing.T) {
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "mealplans_read", map[string]any{"action": "today"})
-	if got := resultText(t, res); !res.IsError || !strings.Contains(got, "decoding list") {
-		t.Errorf("result = %s (error %v), want a decoding list error", got, res.IsError)
-	}
+	requireToolError(t, res, string(errUnreadableRead))
 }
 
 func TestMealplansRead_Rules(t *testing.T) {

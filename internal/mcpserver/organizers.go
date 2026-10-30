@@ -170,7 +170,7 @@ func createOrganizer(ctx context.Context, s *session, in organizersWriteInput) (
 	if in.QueryFilter != "" {
 		body["queryFilterString"] = in.QueryFilter
 	}
-	return createCompact(ctx, s, in.Kind, kind.base, body, kind.fields)
+	return createCompact(ctx, s, kind.base, body, kind.fields)
 }
 
 func updateOrganizer(ctx context.Context, s *session, in organizersWriteInput) (any, error) {

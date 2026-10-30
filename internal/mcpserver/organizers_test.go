@@ -245,14 +245,14 @@ func TestOrganizers_MealieFailures(t *testing.T) {
 	}
 }
 
-func TestOrganizersWrite_CreateRejectsUnreadableResponse(t *testing.T) {
+func TestOrganizersWrite_CreateAcceptsUnreadableResponse(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodPost, "/api/organizers/tags", http.StatusCreated, `[1]`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "organizers_write", map[string]any{"action": "create", "kind": "tags", "name": "X"})
-	if !res.IsError {
-		t.Errorf("result = %q, want an error", resultText(t, res))
+	if res.IsError || resultText(t, res) != `{"ok":true}` {
+		t.Errorf("result = %q (error %v), want {\"ok\":true}", resultText(t, res), res.IsError)
 	}
 }
 

@@ -134,7 +134,7 @@ func updateRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, e
 		return nil, err
 	}
 	if len(in.Fields) == 0 {
-		return nil, need("update", "fields", "")
+		return nil, needPresent("update", "fields", false)
 	}
 	raw, err := callRecipe(ctx, s, http.MethodPatch, in.Slug, "", in.Fields)
 	if err != nil {
@@ -269,10 +269,10 @@ func organizers(ctx context.Context, s *session, prefix string, slugs []string) 
 
 func bulkOrganize(ctx context.Context, s *session, action, field string, slugs, organizerSlugs []string, lookupPrefix, bulkPath, bodyKey string) (any, error) {
 	if len(slugs) == 0 {
-		return nil, need(action, "slugs", "")
+		return nil, needPresent(action, "slugs", false)
 	}
 	if len(organizerSlugs) == 0 {
-		return nil, need(action, field, "")
+		return nil, needPresent(action, field, false)
 	}
 	if err := checkSlugs(slugs); err != nil {
 		return nil, err
@@ -297,7 +297,7 @@ func bulkCategorize(ctx context.Context, s *session, in recipesWriteInput) (any,
 
 func bulkDelete(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
 	if len(in.Slugs) == 0 {
-		return nil, need("bulk_delete", "slugs", "")
+		return nil, needPresent("bulk_delete", "slugs", false)
 	}
 	if err := checkSlugs(in.Slugs); err != nil {
 		return nil, err

@@ -106,7 +106,7 @@ func emptyIngredients(ctx context.Context, s *session, in ingredientsReadInput) 
 
 func parseIngredients(ctx context.Context, s *session, in ingredientsReadInput) (any, error) {
 	if len(in.Ingredients) == 0 {
-		return nil, need("parse", "ingredients", "")
+		return nil, needPresent("parse", "ingredients", false)
 	}
 	if len(in.Ingredients) > maxParseEntries {
 		return nil, toolFailure("parse takes at most 50 ingredients.")
@@ -175,7 +175,7 @@ func createIngredient(ctx context.Context, s *session, in ingredientsWriteInput)
 		return nil, err
 	}
 	kind := ingredientKinds[in.Kind]
-	return createCompact(ctx, s, in.Kind, kind.base, body, kind.fields)
+	return createCompact(ctx, s, kind.base, body, kind.fields)
 }
 
 func updateIngredient(ctx context.Context, s *session, in ingredientsWriteInput) (any, error) {

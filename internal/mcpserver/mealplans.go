@@ -244,7 +244,7 @@ func invalidEntry(index int, e mealplanEntry, err error) error {
 
 func bulkCreateMealplans(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
 	if len(in.Entries) == 0 {
-		return nil, need("bulk_create", "entries", "")
+		return nil, needPresent("bulk_create", "entries", false)
 	}
 	if len(in.Entries) > maxBulkEntries {
 		return nil, toolFailure(fmt.Sprintf("bulk_create takes at most %d entries.", maxBulkEntries))

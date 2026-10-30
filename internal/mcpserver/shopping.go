@@ -172,7 +172,7 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 		return nil, err
 	}
 	if len(in.Items) == 0 {
-		return nil, need("add_items", "items", "")
+		return nil, needPresent("add_items", "items", false)
 	}
 	listPath, err := mealie.PathOf(shoppingListsPath, in.ListID)
 	if err != nil {
@@ -221,7 +221,7 @@ func updateShoppingItems(ctx context.Context, s *session, in shoppingWriteInput)
 		return nil, err
 	}
 	if len(in.Items) == 0 {
-		return nil, need("update_items", "items", "")
+		return nil, needPresent("update_items", "items", false)
 	}
 	for _, item := range in.Items {
 		if err := need("update_items", "id", item.ID); err != nil {
@@ -252,7 +252,7 @@ func updateShoppingItems(ctx context.Context, s *session, in shoppingWriteInput)
 
 func deleteShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (any, error) {
 	if len(in.IDs) == 0 {
-		return nil, need("delete_items", "ids", "")
+		return nil, needPresent("delete_items", "ids", false)
 	}
 	for _, id := range in.IDs {
 		if err := mealie.CheckSegment(id); err != nil {

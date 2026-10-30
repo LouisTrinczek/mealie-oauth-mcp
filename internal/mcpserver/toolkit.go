@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/allowlist"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
@@ -24,6 +26,8 @@ import (
 const (
 	errRequestFailed    toolFailure = "Mealie request failed."
 	errWriteUnconfirmed toolFailure = "Mealie did not confirm the change in time, so it may or may not have been saved. Check with a read or list action before trying again."
+	errUnreadableRead   toolFailure = "Mealie sent a response this server could not read. Try again; if it keeps happening, this Mealie version may not be supported."
+	errUnreadableWrite  toolFailure = "Mealie sent a response this server could not read, so the change may or may not have been saved. Check with a read or list action before trying again."
 )
 
 type session struct {
@@ -142,11 +146,19 @@ func setEnums(schema *jsonschema.Schema, enums map[string][]any) {
 	}
 	for name, property := range schema.Properties {
 		if choices, found := enums[name]; found {
-			property.Enum = choices
+			if isArray(property) && property.Items != nil {
+				property.Items.Enum = choices
+			} else {
+				property.Enum = choices
+			}
 		}
 		setEnums(property, enums)
 		setEnums(property.Items, enums)
 	}
+}
+
+func isArray(schema *jsonschema.Schema) bool {
+	return schema.Type == "array" || slices.Contains(schema.Types, "array")
 }
 
 func addActionTool[In actionInput](srv *mcp.Server, d Deps, spec toolSpec, actions []action[In], enums map[string][]any) error {
@@ -161,16 +173,8 @@ func addActionTool[In actionInput](srv *mcp.Server, d Deps, spec toolSpec, actio
 	}
 	choices := map[string][]any{"action": names}
 	maps.Copy(choices, enums)
-	schema, err := inputSchema[In](choices)
-	if err != nil {
-		return err
-	}
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        spec.name,
-		Description: description.String(),
-		InputSchema: schema,
-		Annotations: spec.annotations(),
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+	tool := &mcp.Tool{Name: spec.name, Description: description.String(), Annotations: spec.annotations()}
+	return addSingleTool(srv, tool, choices, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		s, err := openSession(ctx, d, req)
 		if err != nil {
 			return nil, nil, err
@@ -181,7 +185,36 @@ func addActionTool[In actionInput](srv *mcp.Server, d Deps, spec toolSpec, actio
 		}
 		return textResult(result)
 	})
+}
+
+func addSingleTool[In any](srv *mcp.Server, tool *mcp.Tool, enums map[string][]any, handler mcp.ToolHandlerFor[In, any]) error {
+	schema, err := inputSchema[In](enums)
+	if err != nil {
+		return err
+	}
+	tool.InputSchema = schema
+	read := tool.Annotations.ReadOnlyHint
+	mcp.AddTool(srv, tool, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+		result, out, err := handler(ctx, req, in)
+		if err != nil {
+			return nil, nil, agentError(err, read)
+		}
+		return result, out, nil
+	})
 	return nil
+}
+
+func agentError(err error, read bool) error {
+	var failure toolFailure
+	var segment *mealie.SegmentError
+	var denied *allowlist.DeniedError
+	if errors.As(err, &failure) || errors.As(err, &segment) || errors.As(err, &denied) || errors.Is(err, view.ErrTooLarge) {
+		return err
+	}
+	if read {
+		return errUnreadableRead
+	}
+	return errUnreadableWrite
 }
 
 func textResult(value any) (*mcp.CallToolResult, any, error) {
@@ -193,7 +226,11 @@ func textResult(value any) (*mcp.CallToolResult, any, error) {
 }
 
 func need(action, field, value string) error {
-	if value == "" {
+	return needPresent(action, field, value != "")
+}
+
+func needPresent(action, field string, present bool) error {
+	if !present {
 		return toolFailure(fmt.Sprintf("Action %q needs %s.", action, field))
 	}
 	return nil
@@ -253,7 +290,7 @@ func updateRaw(ctx context.Context, s *session, action, prefix, id string, field
 		return nil, err
 	}
 	if len(fields) == 0 {
-		return nil, need(action, "fields", "")
+		return nil, needPresent(action, "fields", false)
 	}
 	path, err := mealie.PathOf(prefix, id)
 	if err != nil {
@@ -275,7 +312,11 @@ func compactWrite(raw json.RawMessage, fields []string) any {
 	if json.Unmarshal(raw, &written) != nil || written == nil {
 		return ok(nil)
 	}
-	return view.Compact(written, fields)
+	compacted := view.Compact(written, fields)
+	if len(compacted) == 0 {
+		return ok(nil)
+	}
+	return compacted
 }
 
 func deleteByID(ctx context.Context, s *session, action, prefix, id string) (any, error) {
@@ -298,14 +339,10 @@ func setIfNotEmpty(query url.Values, key, value string) {
 	}
 }
 
-func createCompact(ctx context.Context, s *session, kindName, base string, body any, fields []string) (any, error) {
+func createCompact(ctx context.Context, s *session, base string, body any, fields []string) (any, error) {
 	raw, err := s.call(ctx, http.MethodPost, base, nil, body)
 	if err != nil {
 		return nil, err
 	}
-	var created map[string]any
-	if err := json.Unmarshal(raw, &created); err != nil {
-		return nil, fmt.Errorf("decoding the created %s: %w", kindName, err)
-	}
-	return view.Compact(created, fields), nil
+	return compactWrite(raw, fields), nil
 }

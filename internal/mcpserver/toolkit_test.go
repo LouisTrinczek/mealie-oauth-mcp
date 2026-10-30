@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -12,8 +14,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/allowlist"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
 )
 
 const sessionEnded = "Your Mealie session ended. Reconnect this app to log in again."
@@ -22,6 +26,10 @@ type entriesInput struct {
 	Entries []struct {
 		EntryType string `json:"entryType,omitempty"`
 	} `json:"entries,omitempty"`
+}
+
+type kindsInput struct {
+	Kinds []string `json:"kinds"`
 }
 
 type channelInput struct {
@@ -386,5 +394,83 @@ func TestCompactWrite(t *testing.T) {
 				t.Errorf("compactWrite = %#v, want %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAgentError(t *testing.T) {
+	unreadable := fmt.Errorf("decoding page: %w", io.ErrUnexpectedEOF)
+	tests := []struct {
+		name string
+		err  error
+		read bool
+		want error
+	}{
+		{"ToolFailure", toolFailure("x"), true, toolFailure("x")},
+		{"SegmentError", &mealie.SegmentError{Value: "a/b"}, false, &mealie.SegmentError{Value: "a/b"}},
+		{"Denied", &allowlist.DeniedError{Reason: "r"}, false, &allowlist.DeniedError{Reason: "r"}},
+		{"TooLarge", &view.TooLargeError{Size: 70000}, true, &view.TooLargeError{Size: 70000}},
+		{"UnreadableRead", unreadable, true, errUnreadableRead},
+		{"UnreadableWrite", unreadable, false, errUnreadableWrite},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := agentError(tt.err, tt.read)
+			if got.Error() != tt.want.Error() {
+				t.Errorf("agentError = %v, want %v", got, tt.want)
+			}
+			if tt.err != unreadable && got != tt.err {
+				t.Errorf("agentError = %v, want the error unchanged", got)
+			}
+		})
+	}
+}
+
+func TestActionTool_UnreadableReadResponse(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/households/shopping/lists", http.StatusOK, `null`)
+	cs := connectTools(t, api)
+
+	requireToolError(t, callTool(t, cs, "shopping_read", map[string]any{"action": "lists"}), string(errUnreadableRead))
+}
+
+func TestCreateCompact_UnreadableBodyIsSuccess(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodPost, "/api/foods", http.StatusCreated, `[]`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "ingredients_write", map[string]any{"action": "create", "kind": "foods", "name": "salt"})
+	if res.IsError || resultText(t, res) != `{"ok":true}` {
+		t.Errorf("result = %s (error %v), want {\"ok\":true}", resultText(t, res), res.IsError)
+	}
+}
+
+func TestCompactWrite_NoListedFieldsIsOK(t *testing.T) {
+	got := compactWrite([]byte(`{"other":1}`), []string{"id"})
+	if want := (map[string]bool{"ok": true}); !reflect.DeepEqual(got, want) {
+		t.Errorf("compactWrite = %#v, want %#v", got, want)
+	}
+}
+
+func TestInputSchema_EnumOnArrayItems(t *testing.T) {
+	schema, err := inputSchema[kindsInput](map[string][]any{"kinds": {"a", "b"}})
+	if err != nil {
+		t.Fatalf("inputSchema: %v", err)
+	}
+	kinds := schema.Properties["kinds"]
+	if want := []any{"a", "b"}; !reflect.DeepEqual(kinds.Items.Enum, want) {
+		t.Errorf("kinds.items.enum = %v, want %v", kinds.Items.Enum, want)
+	}
+	if kinds.Enum != nil {
+		t.Errorf("kinds.enum = %v, want nil", kinds.Enum)
+	}
+}
+
+func TestNeedPresent(t *testing.T) {
+	err := needPresent("rate", "rating", false)
+	if err == nil || err.Error() != `Action "rate" needs rating.` {
+		t.Errorf("needPresent(false) = %v", err)
+	}
+	if err := needPresent("rate", "rating", true); err != nil {
+		t.Errorf("needPresent(true) = %v, want nil", err)
 	}
 }

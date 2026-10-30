@@ -51,16 +51,6 @@ func addMealieAPI(srv *mcp.Server, d Deps) error {
 	})
 }
 
-func addSingleTool[In any](srv *mcp.Server, tool *mcp.Tool, enums map[string][]any, handler mcp.ToolHandlerFor[In, any]) error {
-	schema, err := inputSchema[In](enums)
-	if err != nil {
-		return err
-	}
-	tool.InputSchema = schema
-	mcp.AddTool(srv, tool, handler)
-	return nil
-}
-
 func queryValues(query map[string]any) (url.Values, error) {
 	values := make(url.Values, len(query))
 	for key, value := range query {

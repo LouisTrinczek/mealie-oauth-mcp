@@ -104,7 +104,7 @@ func addComment(ctx context.Context, s *session, in feedbackWriteInput) (any, er
 	if err != nil {
 		return nil, err
 	}
-	return createCompact(ctx, s, "comment", commentsPath, map[string]string{"recipeId": id, "text": in.Text}, commentFields)
+	return createCompact(ctx, s, commentsPath, map[string]string{"recipeId": id, "text": in.Text}, commentFields)
 }
 
 func updateComment(ctx context.Context, s *session, in feedbackWriteInput) (any, error) {
@@ -134,7 +134,7 @@ func rateRecipe(ctx context.Context, s *session, in feedbackWriteInput) (any, er
 		return nil, err
 	}
 	if in.Rating == nil {
-		return nil, need("rate", "rating", "")
+		return nil, needPresent("rate", "rating", false)
 	}
 	if *in.Rating < 0 || *in.Rating > maxRating {
 		return nil, toolFailure("rating must be between 0 and 5.")

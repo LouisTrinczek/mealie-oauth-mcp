@@ -272,17 +272,6 @@ func TestIngredientsWrite_CreateRejectsForeignField(t *testing.T) {
 	}
 }
 
-func TestIngredientsWrite_CreateRejectsUnreadableResponse(t *testing.T) {
-	api := newFakeMealie(t)
-	api.on(http.MethodPost, "/api/foods", http.StatusCreated, `[1]`)
-	cs := connectTools(t, api)
-
-	res := callTool(t, cs, "ingredients_write", map[string]any{"action": "create", "kind": "foods", "name": "X"})
-	if !res.IsError {
-		t.Errorf("result = %q, want an error", resultText(t, res))
-	}
-}
-
 func TestIngredientsWrite_UpdateMergesFields(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/units/u-1", http.StatusOK, unitBody)
