@@ -14,6 +14,7 @@ import (
 
 const (
 	plannedDate    = "2026-11-02"
+	plannedNote    = "round trip"
 	madeItSubject  = "Made it"
 	givenRating    = 4
 	deniedPathText = "is not allowed"
@@ -42,7 +43,13 @@ type itemsResult struct {
 }
 
 type plannedEntry struct {
+	ID     any       `json:"id"`
+	Text   string    `json:"text"`
 	Recipe namedItem `json:"recipe"`
+}
+
+type plannedEntries struct {
+	Items []plannedEntry `json:"items"`
 }
 
 type userRating struct {
@@ -67,6 +74,7 @@ func TestToolGroups(t *testing.T) {
 		{"recipes_read_get", g.getRecipe},
 		{"organizers_and_bulk_tag", g.tagRecipe},
 		{"mealplans", g.planRecipe},
+		{"mealplans_id_round_trip", g.updateAndDeletePlannedMeal},
 		{"shopping", g.shopForRecipe},
 		{"history", g.madeRecipe},
 		{"ingredients_parse", g.parseIngredient},
@@ -149,13 +157,34 @@ func (g *toolGroups) tagRecipe(t *testing.T) {
 
 func (g *toolGroups) planRecipe(t *testing.T) {
 	callOK(t, g.session, "mealplans_write", map[string]any{"action": "create", "date": plannedDate, "slug": g.slug}, nil)
-	var planned struct {
-		Items []plannedEntry `json:"items"`
-	}
-	callOK(t, g.session, "mealplans_read", map[string]any{"action": "list", "start": plannedDate, "end": plannedDate}, &planned)
+	planned := g.plannedMeals(t)
 	if !slices.ContainsFunc(planned.Items, func(entry plannedEntry) bool { return entry.Recipe.Slug == g.slug }) {
 		t.Fatalf("meal plan for %s has no recipe %q: %+v", plannedDate, g.slug, planned.Items)
 	}
+}
+
+func (g *toolGroups) updateAndDeletePlannedMeal(t *testing.T) {
+	planned := g.plannedMeals(t)
+	if len(planned.Items) == 0 {
+		t.Fatalf("meal plan for %s is empty", plannedDate)
+	}
+	id := planned.Items[0].ID
+	var updated plannedEntry
+	callOK(t, g.session, "mealplans_write", map[string]any{"action": "update", "id": id, "fields": map[string]any{"text": plannedNote}}, &updated)
+	if updated.ID != id || updated.Text != plannedNote {
+		t.Fatalf("update of meal plan entry %v returned id %v, text %q", id, updated.ID, updated.Text)
+	}
+	callOK(t, g.session, "mealplans_write", map[string]any{"action": "delete", "id": id}, nil)
+	if slices.ContainsFunc(g.plannedMeals(t).Items, func(entry plannedEntry) bool { return entry.ID == id }) {
+		t.Fatalf("meal plan entry %v is still listed after delete", id)
+	}
+}
+
+func (g *toolGroups) plannedMeals(t *testing.T) plannedEntries {
+	t.Helper()
+	var planned plannedEntries
+	callOK(t, g.session, "mealplans_read", map[string]any{"action": "list", "start": plannedDate, "end": plannedDate}, &planned)
+	return planned
 }
 
 func (g *toolGroups) shopForRecipe(t *testing.T) {
