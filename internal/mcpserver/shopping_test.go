@@ -286,34 +286,40 @@ func TestShoppingTools_Failures(t *testing.T) {
 
 func TestShoppingTools_MealieFailures(t *testing.T) {
 	const gone = `{"detail":"gone"}`
-	const want = "Mealie could not find that (404): gone. Check the slug or id; search or list to find it."
+	const notFound = "Mealie could not find that (404): gone. Check the slug or id; search or list to find it."
 	tests := []struct {
 		name         string
 		tool         string
 		args         map[string]any
 		method, path string
 		prepare      func(*fakeAPI)
+		want         string
 	}{
-		{"lists", "shopping_read", map[string]any{"action": "lists"}, http.MethodGet, listsBase, nil},
-		{"list", "shopping_read", map[string]any{"action": "list", "id": "l-1"}, http.MethodGet, listsBase + "/l-1", nil},
-		{"create_list", "shopping_write", map[string]any{"action": "create_list", "name": "n"}, http.MethodPost, listsBase, nil},
-		{"update_list", "shopping_write", map[string]any{"action": "update_list", "id": "l-1", "fields": map[string]any{"name": "n"}}, http.MethodGet, listsBase + "/l-1", nil},
-		{"add_items", "shopping_write", map[string]any{"action": "add_items", "listId": "l-1", "items": []any{map[string]any{"note": "n"}}}, http.MethodPost, itemsBase + "/create-bulk", nil},
+		{"lists", "shopping_read", map[string]any{"action": "lists"}, http.MethodGet, listsBase, nil, notFound},
+		{"list", "shopping_read", map[string]any{"action": "list", "id": "l-1"}, http.MethodGet, listsBase + "/l-1", nil, notFound},
+		{"create_list", "shopping_write", map[string]any{"action": "create_list", "name": "n"}, http.MethodPost, listsBase, nil, notFound},
+		{"update_list", "shopping_write", map[string]any{"action": "update_list", "id": "l-1", "fields": map[string]any{"name": "n"}}, http.MethodGet, listsBase + "/l-1", nil, notFound},
+		{"add_items", "shopping_write", map[string]any{"action": "add_items", "listId": "l-1", "items": []any{map[string]any{"note": "n"}}}, http.MethodPost, itemsBase + "/create-bulk", nil, notFound},
 		{"add_items refetch", "shopping_write", map[string]any{"action": "add_items", "listId": "l-1", "items": []any{map[string]any{"note": "n"}}}, http.MethodGet, listsBase + "/l-1", func(a *fakeAPI) {
 			a.on(http.MethodPost, itemsBase+"/create-bulk", http.StatusOK, `{}`)
-		}},
-		{"update_items get", "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1"}}}, http.MethodGet, itemsBase + "/i-1", nil},
+		}, "Added 1 items, but reading the list back failed: " + notFound + " Check with shopping_read before adding them again."},
+		{"update_items get", "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1"}}}, http.MethodGet, itemsBase + "/i-1", nil, notFound},
 		{"update_items put", "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1"}}}, http.MethodPut, itemsBase, func(a *fakeAPI) {
 			a.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1","shoppingListId":"l-1"}`)
-		}},
-		{"delete_items", "shopping_write", map[string]any{"action": "delete_items", "ids": []any{"a"}}, http.MethodDelete, itemsBase, nil},
-		{"add_recipe recipe", "shopping_write", map[string]any{"action": "add_recipe", "listId": "l-1", "slug": "soup"}, http.MethodGet, "/api/recipes/soup", nil},
+		}, notFound},
+		{"update_items refetch", "shopping_write", map[string]any{"action": "update_items", "listId": "l-1", "items": []any{map[string]any{"id": "i-1"}, map[string]any{"id": "i-2"}}}, http.MethodGet, listsBase + "/l-1", func(a *fakeAPI) {
+			a.on(http.MethodGet, itemsBase+"/i-1", http.StatusOK, `{"id":"i-1","shoppingListId":"l-1"}`)
+			a.on(http.MethodGet, itemsBase+"/i-2", http.StatusOK, `{"id":"i-2","shoppingListId":"l-1"}`)
+			a.on(http.MethodPut, itemsBase, http.StatusOK, `{}`)
+		}, "Updated 2 items, but reading the list back failed: " + notFound + " Check with shopping_read before changing them again."},
+		{"delete_items", "shopping_write", map[string]any{"action": "delete_items", "ids": []any{"a"}}, http.MethodDelete, itemsBase, nil, notFound},
+		{"add_recipe recipe", "shopping_write", map[string]any{"action": "add_recipe", "listId": "l-1", "slug": "soup"}, http.MethodGet, "/api/recipes/soup", nil, notFound},
 		{"add_recipe post", "shopping_write", map[string]any{"action": "add_recipe", "listId": "l-1", "slug": "soup"}, http.MethodPost, listsBase + "/l-1/recipe", func(a *fakeAPI) {
 			a.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
-		}},
+		}, notFound},
 		{"remove_recipe post", "shopping_write", map[string]any{"action": "remove_recipe", "listId": "l-1", "slug": "soup"}, http.MethodPost, listsBase + "/l-1/recipe/r-1/delete", func(a *fakeAPI) {
 			a.on(http.MethodGet, "/api/recipes/soup", http.StatusOK, soupRecipeBody)
-		}},
+		}, notFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -325,11 +331,21 @@ func TestShoppingTools_MealieFailures(t *testing.T) {
 			cs := connectTools(t, api)
 
 			res := callTool(t, cs, tt.tool, tt.args)
-			if got := resultText(t, res); !res.IsError || got != want {
-				t.Errorf("result = %q (error %v), want %q", got, res.IsError, want)
+			if got := resultText(t, res); !res.IsError || got != tt.want {
+				t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
 			}
 		})
 	}
+}
+
+func TestShoppingWrite_UnreadableReadBackIsUnconfirmed(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodPost, itemsBase+"/create-bulk", http.StatusOK, `{}`)
+	api.on(http.MethodGet, listsBase+"/l-1", http.StatusOK, `[1]`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "shopping_write", map[string]any{"action": "add_items", "listId": "l-1", "items": []any{map[string]any{"note": "n"}}})
+	requireToolError(t, res, string(errUnreadableWrite))
 }
 
 func TestShoppingTools_BadMealieBody(t *testing.T) {

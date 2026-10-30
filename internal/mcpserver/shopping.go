@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -201,7 +202,16 @@ func addShoppingItems(ctx context.Context, s *session, in shoppingWriteInput) (a
 	if _, err := s.call(ctx, http.MethodPost, shoppingItemsPath+"/create-bulk", nil, body); err != nil {
 		return nil, err
 	}
-	return fetchListView(ctx, s, listPath)
+	return listAfterWrite(ctx, s, listPath, fmt.Sprintf("Added %d items", len(body)), "adding")
+}
+
+func listAfterWrite(ctx context.Context, s *session, path, saved, retrying string) (any, error) {
+	list, err := fetchListView(ctx, s, path)
+	var failure toolFailure
+	if errors.As(err, &failure) {
+		return nil, toolFailure(fmt.Sprintf("%s, but reading the list back failed: %s Check with shopping_read before %s them again.", saved, failure, retrying))
+	}
+	return list, err
 }
 
 func deref[T any](value *T) T {
@@ -274,7 +284,7 @@ func updateShoppingItems(ctx context.Context, s *session, in shoppingWriteInput)
 	if _, err := s.call(ctx, http.MethodPut, shoppingItemsPath, nil, merged); err != nil {
 		return nil, err
 	}
-	return fetchListView(ctx, s, listPath)
+	return listAfterWrite(ctx, s, listPath, fmt.Sprintf("Updated %d items", len(merged)), "changing")
 }
 
 func onList(item map[string]any, listID string) bool {
