@@ -69,6 +69,7 @@ func New(d Deps) (*mcp.Server, error) {
 		addIngredientsWrite(srv, d),
 		addFeedbackRead(srv, d),
 		addFeedbackWrite(srv, d),
+		addMealieAPI(srv, d),
 	)
 }
 
