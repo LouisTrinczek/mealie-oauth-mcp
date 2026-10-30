@@ -9,7 +9,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
 )
 
@@ -256,52 +255,20 @@ func randomMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 	return compactEntry(raw)
 }
 
-func updateByID(ctx context.Context, s *session, action, prefix string, in mealplansWriteInput) (any, error) {
-	if err := need(action, "id", in.ID); err != nil {
-		return nil, err
-	}
-	if len(in.Fields) == 0 {
-		return nil, need(action, "fields", "")
-	}
-	path, err := mealie.PathOf(prefix, in.ID)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := mergeUpdate(ctx, s, path, in.Fields)
-	if err != nil {
-		return nil, err
-	}
-	return ok(raw), nil
-}
-
-func deleteByID(ctx context.Context, s *session, action, prefix string, in mealplansWriteInput) (any, error) {
-	if err := need(action, "id", in.ID); err != nil {
-		return nil, err
-	}
-	path, err := mealie.PathOf(prefix, in.ID)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := s.call(ctx, http.MethodDelete, path, nil, nil); err != nil {
-		return nil, err
-	}
-	return ok(nil), nil
-}
-
 func updateMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	return updateByID(ctx, s, "update", mealplansPath, in)
+	return updateByID(ctx, s, "update", mealplansPath, in.ID, in.Fields)
 }
 
 func deleteMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	return deleteByID(ctx, s, "delete", mealplansPath, in)
+	return deleteByID(ctx, s, "delete", mealplansPath, in.ID)
 }
 
 func updateMealplanRule(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	return updateByID(ctx, s, "rule_update", mealplanRulesPath, in)
+	return updateByID(ctx, s, "rule_update", mealplanRulesPath, in.ID, in.Fields)
 }
 
 func deleteMealplanRule(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	return deleteByID(ctx, s, "rule_delete", mealplanRulesPath, in)
+	return deleteByID(ctx, s, "rule_delete", mealplanRulesPath, in.ID)
 }
 
 func createMealplanRule(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {

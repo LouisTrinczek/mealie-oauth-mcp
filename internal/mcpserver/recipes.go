@@ -354,12 +354,6 @@ func searchRecipes(ctx context.Context, s *session, in recipesReadInput) (any, e
 	return view.Page(raw, recipeFields)
 }
 
-func setIfNotEmpty(query url.Values, key, value string) {
-	if value != "" {
-		query.Set(key, value)
-	}
-}
-
 func getRecipe(ctx context.Context, s *session, in recipesReadInput) (any, error) {
 	if err := need("get", "slug", in.Slug); err != nil {
 		return nil, err

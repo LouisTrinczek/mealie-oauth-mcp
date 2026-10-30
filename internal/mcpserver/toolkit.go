@@ -231,3 +231,41 @@ func ok(raw json.RawMessage) any {
 	}
 	return raw
 }
+
+func updateByID(ctx context.Context, s *session, action, prefix, id string, fields map[string]any) (any, error) {
+	if err := need(action, "id", id); err != nil {
+		return nil, err
+	}
+	if len(fields) == 0 {
+		return nil, need(action, "fields", "")
+	}
+	path, err := mealie.PathOf(prefix, id)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := mergeUpdate(ctx, s, path, fields)
+	if err != nil {
+		return nil, err
+	}
+	return ok(raw), nil
+}
+
+func deleteByID(ctx context.Context, s *session, action, prefix, id string) (any, error) {
+	if err := need(action, "id", id); err != nil {
+		return nil, err
+	}
+	path, err := mealie.PathOf(prefix, id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.call(ctx, http.MethodDelete, path, nil, nil); err != nil {
+		return nil, err
+	}
+	return ok(nil), nil
+}
+
+func setIfNotEmpty(query url.Values, key, value string) {
+	if value != "" {
+		query.Set(key, value)
+	}
+}
