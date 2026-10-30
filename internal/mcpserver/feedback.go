@@ -67,6 +67,9 @@ func userRatings(kind string) func(ctx context.Context, s *session, in feedbackR
 		if err := json.Unmarshal(raw, &wrapper); err != nil {
 			return nil, fmt.Errorf("decoding %s: %w", kind, err)
 		}
+		if len(wrapper.Ratings) == 0 || string(wrapper.Ratings) == "null" {
+			return map[string]any{"items": []any{}, "total": 0}, nil
+		}
 		return view.List(wrapper.Ratings, ratingFields)
 	}
 }
@@ -133,11 +136,11 @@ func rateRecipe(ctx context.Context, s *session, in feedbackWriteInput) (any, er
 	if err := need("rate", "slug", in.Slug); err != nil {
 		return nil, err
 	}
-	if in.Rating == nil {
-		return nil, needPresent("rate", "rating", false)
+	if err := needPresent("rate", "rating", in.Rating != nil); err != nil {
+		return nil, err
 	}
 	if *in.Rating < 0 || *in.Rating > maxRating {
-		return nil, toolFailure("rating must be between 0 and 5.")
+		return nil, toolFailure(fmt.Sprintf("rating must be between 0 and %d.", maxRating))
 	}
 	path, err := userRecipePath(ctx, s, "ratings", in.Slug)
 	if err != nil {
