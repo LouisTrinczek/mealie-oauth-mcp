@@ -1,10 +1,10 @@
 # mealie-oauth-mcp
 
-[![Quality Gate Status](https://sonarqube.lt-ds.de/api/project_badges/measure?project=mealie-oauth-mcp&metric=alert_status)](https://sonarqube.lt-ds.de/dashboard?id=mealie-oauth-mcp)
-[![Coverage](https://sonarqube.lt-ds.de/api/project_badges/measure?project=mealie-oauth-mcp&metric=coverage)](https://sonarqube.lt-ds.de/dashboard?id=mealie-oauth-mcp)
-[![Security Rating](https://sonarqube.lt-ds.de/api/project_badges/measure?project=mealie-oauth-mcp&metric=security_rating)](https://sonarqube.lt-ds.de/dashboard?id=mealie-oauth-mcp)
-[![Reliability Rating](https://sonarqube.lt-ds.de/api/project_badges/measure?project=mealie-oauth-mcp&metric=reliability_rating)](https://sonarqube.lt-ds.de/dashboard?id=mealie-oauth-mcp)
-[![Maintainability Rating](https://sonarqube.lt-ds.de/api/project_badges/measure?project=mealie-oauth-mcp&metric=sqale_rating)](https://sonarqube.lt-ds.de/dashboard?id=mealie-oauth-mcp)
+[![Quality Gate Status](https://sonarqube.lt-ds.de/api/project_badges/measure?project=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977&metric=alert_status)](https://sonarqube.lt-ds.de/dashboard?id=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977)
+[![Coverage](https://sonarqube.lt-ds.de/api/project_badges/measure?project=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977&metric=coverage)](https://sonarqube.lt-ds.de/dashboard?id=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977)
+[![Security Rating](https://sonarqube.lt-ds.de/api/project_badges/measure?project=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977&metric=security_rating)](https://sonarqube.lt-ds.de/dashboard?id=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977)
+[![Reliability Rating](https://sonarqube.lt-ds.de/api/project_badges/measure?project=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977&metric=reliability_rating)](https://sonarqube.lt-ds.de/dashboard?id=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977)
+[![Maintainability Rating](https://sonarqube.lt-ds.de/api/project_badges/measure?project=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977&metric=sqale_rating)](https://sonarqube.lt-ds.de/dashboard?id=LouisTrinczek_mealie-oauth-mcp_72e5801c-dbee-4707-95f1-fd836014f977)
 
 A remote [MCP](https://modelcontextprotocol.io) server for
 [Mealie](https://mealie.io) that lets AI agents (Claude.ai, Claude Code, and
