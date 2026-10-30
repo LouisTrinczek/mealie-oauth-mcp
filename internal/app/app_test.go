@@ -24,6 +24,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/config"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/mcpserver"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/store"
@@ -788,6 +789,26 @@ func TestApp_NewFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApp_NewFailsWhenToolsDoNotBuild(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	failing := func(mcpserver.Deps) (*mcp.Server, error) { return nil, errors.New("bad schema") }
+
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", failing)
+	if err == nil {
+		_ = a.Close()
+		t.Fatal("newApp succeeded with a failing tools builder")
+	}
+	if !strings.Contains(err.Error(), "building MCP tools: bad schema") {
+		t.Errorf("error = %q, want the tools build failure", err)
+	}
+	reopened, err := store.Open(t.Context(), cfg.DataDir, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("store stayed open after the failure: %v", err)
+	}
+	_ = reopened.Close()
 }
 
 func TestApp_ServeFailsWhenListenerBreaks(t *testing.T) {

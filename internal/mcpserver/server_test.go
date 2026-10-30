@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -76,6 +77,13 @@ func (f *fakeMealie) Self(_ context.Context, tok secret.Secret) (mealie.User, er
 	return f.user, f.err
 }
 
+func (f *fakeMealie) Call(_ context.Context, tok secret.Secret, _, _ string, _ url.Values, _ any) (json.RawMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tokens = append(f.tokens, tok.Reveal())
+	return nil, f.err
+}
+
 func (f *fakeMealie) seenTokens() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -106,7 +114,7 @@ func stubVerifier(_ context.Context, tok string, _ *http.Request) (*auth.TokenIn
 
 func connectOverHTTP(t *testing.T, d Deps) *mcp.ClientSession {
 	t.Helper()
-	srv := New(d)
+	srv := newServer(t, d)
 	handler := auth.RequireBearerToken(stubVerifier, nil)(
 		mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil),
 	)
@@ -122,12 +130,21 @@ func connectOverHTTP(t *testing.T, d Deps) *mcp.ClientSession {
 func connectInMemory(t *testing.T, d Deps) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := New(d).Connect(t.Context(), serverTransport, nil)
+	serverSession, err := newServer(t, d).Connect(t.Context(), serverTransport, nil)
 	if err != nil {
 		t.Fatalf("server Connect: %v", err)
 	}
 	t.Cleanup(func() { _ = serverSession.Close() })
 	return connect(t, clientTransport)
+}
+
+func newServer(t *testing.T, d Deps) *mcp.Server {
+	t.Helper()
+	srv, err := New(d)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return srv
 }
 
 func connect(t *testing.T, transport mcp.Transport) *mcp.ClientSession {
@@ -143,11 +160,7 @@ func connect(t *testing.T, transport mcp.Transport) *mcp.ClientSession {
 
 func callWhoami(t *testing.T, cs *mcp.ClientSession) *mcp.CallToolResult {
 	t.Helper()
-	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "whoami"})
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
-	}
-	return res
+	return callTool(t, cs, "whoami", nil)
 }
 
 func resultText(t *testing.T, res *mcp.CallToolResult) string {
@@ -306,14 +319,7 @@ func TestWhoami_OtherErrorsAreGeneric(t *testing.T) {
 func TestWhoami_Annotations(t *testing.T) {
 	cs := connectInMemory(t, Deps{Tokens: &fakeTokens{}, Mealie: &fakeMealie{}})
 
-	res, err := cs.ListTools(t.Context(), nil)
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
-	}
-	if len(res.Tools) != 1 || res.Tools[0].Name != "whoami" {
-		t.Fatalf("tools = %v, want only whoami", res.Tools)
-	}
-	tool := res.Tools[0]
+	tool := findTool(t, cs, "whoami")
 	if tool.Description != "Show which Mealie user this connection acts as, including household and group." {
 		t.Errorf("description = %q", tool.Description)
 	}

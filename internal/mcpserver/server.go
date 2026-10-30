@@ -2,6 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/url"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -29,17 +33,19 @@ type TokenSource interface {
 	ReportUnauthorized(ctx context.Context, info *auth.TokenInfo)
 }
 
-type ProfileReader interface {
+type MealieClient interface {
 	Self(ctx context.Context, tok secret.Secret) (mealie.User, error)
+	Call(ctx context.Context, tok secret.Secret, method, path string, query url.Values, body any) (json.RawMessage, error)
 }
 
 type Deps struct {
 	Tokens  TokenSource
-	Mealie  ProfileReader
+	Mealie  MealieClient
+	Clock   func() time.Time
 	Version string
 }
 
-func New(d Deps) *mcp.Server {
+func New(d Deps) (*mcp.Server, error) {
 	srv := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: d.Version}, nil)
 	closedWorld := false
 	mcp.AddTool(srv, &mcp.Tool{
@@ -47,7 +53,9 @@ func New(d Deps) *mcp.Server {
 		Description: "Show which Mealie user this connection acts as, including household and group.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
 	}, whoami{tokens: d.Tokens, mealie: d.Mealie}.handle)
-	return srv
+	return srv, errors.Join(
+		addAccountRead(srv, d),
+	)
 }
 
 type whoamiOutput struct {
@@ -61,7 +69,7 @@ type whoamiOutput struct {
 
 type whoami struct {
 	tokens TokenSource
-	mealie ProfileReader
+	mealie MealieClient
 }
 
 func (w whoami) handle(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, whoamiOutput, error) {
