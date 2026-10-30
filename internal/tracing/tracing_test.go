@@ -200,11 +200,17 @@ func TestMiddleware_DefaultsStatusToOKWhenHandlerNeverWritesHeader(t *testing.T)
 	if spans[0].Status.Code != codes.Unset {
 		t.Errorf("code = %v, want Unset", spans[0].Status.Code)
 	}
+	found := false
 	for _, attr := range spans[0].Attributes {
-		if attr.Key == "http.response.status_code" && attr.Value.AsInt64() != http.StatusOK {
-			t.Errorf("status_code = %d, want 200", attr.Value.AsInt64())
-			return
+		if attr.Key == "http.response.status_code" {
+			found = true
+			if attr.Value.AsInt64() != http.StatusOK {
+				t.Errorf("status_code = %d, want 200", attr.Value.AsInt64())
+			}
 		}
+	}
+	if !found {
+		t.Error("http.response.status_code attribute missing")
 	}
 }
 
