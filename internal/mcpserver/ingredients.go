@@ -2,8 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -40,8 +42,9 @@ func notApplicable(field, kind string) error {
 
 type ingredientsReadInput struct {
 	actionField
-	Kind        string   `json:"kind" jsonschema:"Which kind: foods, units or labels. Ignored by parse."`
+	Kind        string   `json:"kind,omitempty" jsonschema:"list, get, empty: which kind, foods, units or labels."`
 	ID          string   `json:"id,omitempty" jsonschema:"get: id."`
+	Full        bool     `json:"full,omitempty" jsonschema:"get: return Mealie's full object instead of the trimmed one."`
 	Search      string   `json:"search,omitempty" jsonschema:"list: text to search for (foods only)."`
 	Page        int      `json:"page,omitempty" jsonschema:"list: page number, starting at 1."`
 	PerPage     int      `json:"perPage,omitempty" jsonschema:"list: results per page (default 20, max 100)."`
@@ -55,13 +58,16 @@ func addIngredientsRead(srv *mcp.Server, d Deps) error {
 		read:    true,
 	}, []action[ingredientsReadInput]{
 		{name: "list", help: "List foods, units or labels. Optional: search (foods only), page, perPage.", run: listIngredients},
-		{name: "get", help: "Read one food, unit or label. Needs id.", run: getIngredient},
+		{name: "get", help: "Read one food, unit or label. Needs id. Optional: full.", run: getIngredient},
 		{name: "empty", help: "List foods or labels that no recipe uses (not for units).", run: emptyIngredients},
-		{name: "parse", help: "Parse ingredient lines into structured ingredients. Needs ingredients (max 50). Any kind works and is ignored.", run: parseIngredients},
+		{name: "parse", help: "Parse ingredient lines into structured ingredients. Needs ingredients (max 50).", run: parseIngredients},
 	}, map[string][]any{"kind": ingredientKindNames})
 }
 
 func listIngredients(ctx context.Context, s *session, in ingredientsReadInput) (any, error) {
+	if err := needPresent("list", "kind", in.Kind != ""); err != nil {
+		return nil, err
+	}
 	kind := ingredientKinds[in.Kind]
 	query := pageQuery(in.Page, in.PerPage)
 	if in.Search != "" {
@@ -78,6 +84,9 @@ func listIngredients(ctx context.Context, s *session, in ingredientsReadInput) (
 }
 
 func getIngredient(ctx context.Context, s *session, in ingredientsReadInput) (any, error) {
+	if err := needPresent("get", "kind", in.Kind != ""); err != nil {
+		return nil, err
+	}
 	if err := need("get", "id", in.ID); err != nil {
 		return nil, err
 	}
@@ -89,10 +98,13 @@ func getIngredient(ctx context.Context, s *session, in ingredientsReadInput) (an
 	if err != nil {
 		return nil, err
 	}
-	return trimmed(raw, false)
+	return trimmed(raw, in.Full)
 }
 
 func emptyIngredients(ctx context.Context, s *session, in ingredientsReadInput) (any, error) {
+	if err := needPresent("empty", "kind", in.Kind != ""); err != nil {
+		return nil, err
+	}
 	if in.Kind == unitsKind {
 		return nil, toolFailure(`Action "empty" does not apply to units.`)
 	}
@@ -109,7 +121,12 @@ func parseIngredients(ctx context.Context, s *session, in ingredientsReadInput) 
 		return nil, needPresent("parse", "ingredients", false)
 	}
 	if len(in.Ingredients) > maxParseEntries {
-		return nil, toolFailure("parse takes at most 50 ingredients.")
+		return nil, toolFailure(fmt.Sprintf("parse takes at most %d ingredients.", maxParseEntries))
+	}
+	for i, line := range in.Ingredients {
+		if strings.TrimSpace(line) == "" {
+			return nil, toolFailure(fmt.Sprintf("Ingredient %d is blank. Remove it and try again.", i+1))
+		}
 	}
 	body := map[string]any{"parser": "nlp", "ingredients": in.Ingredients}
 	raw, err := s.call(ctx, http.MethodPost, "/api/parser/ingredients", nil, body)
@@ -190,9 +207,6 @@ func deleteIngredient(ctx context.Context, s *session, in ingredientsWriteInput)
 func mergeIngredients(ctx context.Context, s *session, in ingredientsWriteInput) (any, error) {
 	for _, id := range []struct{ field, value string }{{"fromId", in.FromID}, {"toId", in.ToID}} {
 		if err := need("merge", id.field, id.value); err != nil {
-			return nil, err
-		}
-		if err := mealie.CheckSegment(id.value); err != nil {
 			return nil, err
 		}
 	}

@@ -89,16 +89,16 @@ func TestIngredientsRead_GetFailures(t *testing.T) {
 		id, want string
 	}{
 		{"", `Action "get" needs id.`},
-		{"a/b", ""},
+		{"a/b", `"a/b" is not a valid slug or id.`},
 	}
 	for _, tt := range tests {
 		api := newFakeMealie(t)
 		cs := connectTools(t, api)
 
 		res := callTool(t, cs, "ingredients_read", map[string]any{"action": "get", "kind": "foods", "id": tt.id})
-		got := resultText(t, res)
-		if !res.IsError || len(api.requests()) != 0 || (tt.want != "" && got != tt.want) {
-			t.Errorf("result = %q (error %v), requests = %+v, want a failure and no request", got, res.IsError, api.requests())
+		requireToolError(t, res, tt.want)
+		if len(api.requests()) != 0 {
+			t.Errorf("requests = %+v, want none", api.requests())
 		}
 	}
 }
@@ -138,11 +138,58 @@ func TestIngredientsRead_Parse(t *testing.T) {
 		`[{"input":"2 cups flour","confidence":{"average":0.9},"ingredient":{"quantity":2,"unit":{"id":"u-1","name":"cup"},"food":{"id":"f-1","name":"flour"},"note":"","originalText":"2 cups flour"}}]`)
 	cs := connectTools(t, api)
 
-	res := callTool(t, cs, "ingredients_read", map[string]any{"action": "parse", "kind": "foods", "ingredients": []string{"2 cups flour"}})
+	res := callTool(t, cs, "ingredients_read", map[string]any{"action": "parse", "ingredients": []string{"2 cups flour"}})
 	assertGolden(t, "ingredients_parse", resultText(t, res))
 	wantBody := `{"ingredients":["2 cups flour"],"parser":"nlp"}`
 	if seen := api.requests(); len(seen) != 1 || seen[0].Method != http.MethodPost || seen[0].Body != wantBody {
 		t.Errorf("requests = %+v, want one POST with body %s", seen, wantBody)
+	}
+}
+
+func TestIngredientsRead_ParseWithoutKind(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodPost, "/api/parser/ingredients", http.StatusOK, `[{"input":"1 egg","ingredient":{"quantity":1,"note":"egg"}}]`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "ingredients_read", map[string]any{"action": "parse", "ingredients": []string{"1 egg"}})
+	if res.IsError || len(api.requests()) != 1 {
+		t.Errorf("result = %q (error %v), requests = %d, want a success and one request", resultText(t, res), res.IsError, len(api.requests()))
+	}
+}
+
+func TestIngredientsRead_ListNeedsKind(t *testing.T) {
+	for _, action := range []string{"list", "get", "empty"} {
+		api := newFakeMealie(t)
+		cs := connectTools(t, api)
+
+		res := callTool(t, cs, "ingredients_read", map[string]any{"action": action, "id": "f-1"})
+		requireToolError(t, res, `Action "`+action+`" needs kind.`)
+		if len(api.requests()) != 0 {
+			t.Errorf("%s: requests = %+v, want none", action, api.requests())
+		}
+	}
+}
+
+func TestIngredientsRead_GetFull(t *testing.T) {
+	api := newFakeMealie(t)
+	raw := `{"id":"f-1","name":"Flour","description":null}`
+	api.on(http.MethodGet, "/api/foods/f-1", http.StatusOK, raw)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "ingredients_read", map[string]any{"action": "get", "kind": "foods", "id": "f-1", "full": true})
+	if got := resultText(t, res); res.IsError || got != raw {
+		t.Errorf("result = %s (error %v), want %s", got, res.IsError, raw)
+	}
+}
+
+func TestIngredientsRead_ParseRejectsBlank(t *testing.T) {
+	api := newFakeMealie(t)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "ingredients_read", map[string]any{"action": "parse", "ingredients": []string{"1 egg", "  "}})
+	requireToolError(t, res, "Ingredient 2 is blank. Remove it and try again.")
+	if len(api.requests()) != 0 {
+		t.Errorf("requests = %+v, want none", api.requests())
 	}
 }
 
@@ -289,6 +336,60 @@ func TestIngredientsWrite_UpdateMergesFields(t *testing.T) {
 	}
 }
 
+func TestIngredientsWrite_UpdateEveryKind(t *testing.T) {
+	tests := []struct{ kind, path, current, written, want string }{
+		{"foods", "/api/foods/f-1", foodBody, `{"id":"f-1","name":"Plain Flour","pluralName":"Flours"}`, `{"id":"f-1","name":"Plain Flour","pluralName":"Flours"}`},
+		{"units", "/api/units/u-1", unitBody, `{"id":"u-1","name":"gram","abbreviation":"gr"}`, `{"abbreviation":"gr","id":"u-1","name":"gram"}`},
+		{"labels", "/api/groups/labels/l-1", labelBody, `{"id":"l-1","name":"Pantry","color":"#fff"}`, `{"color":"#fff","id":"l-1","name":"Pantry"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			api := newFakeMealie(t)
+			api.on(http.MethodGet, tt.path, http.StatusOK, tt.current)
+			api.on(http.MethodPut, tt.path, http.StatusOK, tt.written)
+			cs := connectTools(t, api)
+
+			id := tt.path[strings.LastIndex(tt.path, "/")+1:]
+			res := callTool(t, cs, "ingredients_write", map[string]any{"action": "update", "kind": tt.kind, "id": id, "fields": map[string]any{"name": "New"}})
+			if got := resultText(t, res); res.IsError || got != tt.want {
+				t.Errorf("result = %s (error %v), want %s", got, res.IsError, tt.want)
+			}
+			seen := api.requests()
+			if len(seen) != 2 || seen[0].Method != http.MethodGet || seen[0].Path != tt.path || seen[1].Method != http.MethodPut || seen[1].Path != tt.path {
+				t.Errorf("requests = %+v, want GET then PUT on %s", seen, tt.path)
+			}
+		})
+	}
+}
+
+func TestIngredientsWrite_UpdateAndDeleteRejectBadIDs(t *testing.T) {
+	for _, action := range []string{"update", "delete"} {
+		api := newFakeMealie(t)
+		cs := connectTools(t, api)
+
+		res := callTool(t, cs, "ingredients_write", map[string]any{"action": action, "kind": "foods", "id": "a/b", "fields": map[string]any{"name": "x"}})
+		requireToolError(t, res, `"a/b" is not a valid slug or id.`)
+		if len(api.requests()) != 0 {
+			t.Errorf("%s: requests = %+v, want none", action, api.requests())
+		}
+	}
+}
+
+func TestIngredientsWrite_MergePassesIDsInBody(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodPut, "/api/foods/merge", http.StatusOK, `{"message":"merged"}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "ingredients_write", map[string]any{"action": "merge", "kind": "foods", "fromId": "a;b", "toId": ".."})
+	if res.IsError {
+		t.Fatalf("result = %q, want success", resultText(t, res))
+	}
+	wantBody := `{"fromFood":"a;b","toFood":".."}`
+	if seen := api.requests(); len(seen) != 1 || seen[0].Path != "/api/foods/merge" || seen[0].Body != wantBody {
+		t.Errorf("requests = %+v, want one PUT with body %s", seen, wantBody)
+	}
+}
+
 func TestIngredientsWrite_Delete(t *testing.T) {
 	tests := []struct{ kind, path string }{
 		{"foods", "/api/foods/x-1"},
@@ -342,8 +443,6 @@ func TestIngredientsWrite_MergeFailures(t *testing.T) {
 	}{
 		{map[string]any{"fromId": "", "toId": "b"}, `Action "merge" needs fromId.`},
 		{map[string]any{"fromId": "a"}, `Action "merge" needs toId.`},
-		{map[string]any{"fromId": "a/b", "toId": "b"}, ""},
-		{map[string]any{"fromId": "a", "toId": ".."}, ""},
 	}
 	for _, tt := range tests {
 		api := newFakeMealie(t)
@@ -351,9 +450,9 @@ func TestIngredientsWrite_MergeFailures(t *testing.T) {
 
 		tt.args["action"], tt.args["kind"] = "merge", "foods"
 		res := callTool(t, cs, "ingredients_write", tt.args)
-		got := resultText(t, res)
-		if !res.IsError || len(api.requests()) != 0 || (tt.want != "" && got != tt.want) {
-			t.Errorf("args %v: result = %q (error %v), requests = %+v, want a failure and no request", tt.args, got, res.IsError, api.requests())
+		requireToolError(t, res, tt.want)
+		if len(api.requests()) != 0 {
+			t.Errorf("args %v: requests = %+v, want none", tt.args, api.requests())
 		}
 	}
 }
@@ -367,7 +466,11 @@ func TestIngredients_KindEnum(t *testing.T) {
 		if want := []any{"foods", "units", "labels"}; !reflect.DeepEqual(kind["enum"], want) {
 			t.Errorf("%s kind enum = %v, want %v", name, kind["enum"], want)
 		}
-		if want := []any{"action", "kind"}; !reflect.DeepEqual(schema["required"], want) {
+		want := []any{"action", "kind"}
+		if name == "ingredients_read" {
+			want = []any{"action"}
+		}
+		if !reflect.DeepEqual(schema["required"], want) {
 			t.Errorf("%s required = %v, want %v", name, schema["required"], want)
 		}
 	}

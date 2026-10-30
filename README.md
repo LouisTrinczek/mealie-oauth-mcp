@@ -171,7 +171,7 @@ ChatGPT, Cursor, and VS Code should work but are untested.
 | `organizers_write` | `create`, `update`, `delete`, `merge` |
 | `shopping_read` | `lists`, `list` |
 | `shopping_write` | `create_list`, `update_list`, `delete_list`, `add_items`, `update_items`, `delete_items`, `add_recipe`, `remove_recipe` |
-| `ingredients_read` | `list`, `get`, `empty`, `parse` |
+| `ingredients_read` | `list`, `get` (accepts `full`), `empty` (all three need `kind`), `parse` |
 | `ingredients_write` | `create`, `update`, `delete`, `merge` |
 | `feedback_read` | `comments`, `ratings`, `favorites` |
 | `feedback_write` | `comment`, `update_comment`, `delete_comment`, `rate`, `favorite`, `unfavorite` |
