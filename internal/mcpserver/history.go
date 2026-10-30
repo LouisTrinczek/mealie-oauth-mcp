@@ -142,21 +142,7 @@ func madeIt(ctx context.Context, s *session, in historyWriteInput) (any, error) 
 }
 
 func updateTimelineEvent(ctx context.Context, s *session, in historyWriteInput) (any, error) {
-	if err := need("update", "id", in.ID); err != nil {
-		return nil, err
-	}
-	if len(in.Fields) == 0 {
-		return nil, need("update", "fields", "")
-	}
-	path, err := mealie.PathOf(timelinePath, in.ID)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := mergeUpdate(ctx, s, path, in.Fields)
-	if err != nil {
-		return nil, err
-	}
-	return ok(raw), nil
+	return updateByID(ctx, s, "update", timelinePath, in.ID, in.Fields, timelineFields)
 }
 
 func deleteTimelineEvent(ctx context.Context, s *session, in historyWriteInput) (any, error) {

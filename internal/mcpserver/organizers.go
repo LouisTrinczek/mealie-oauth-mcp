@@ -2,8 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -42,6 +44,7 @@ type organizersReadInput struct {
 	Search  string `json:"search,omitempty" jsonschema:"list: text to search for (not for cookbooks)."`
 	Page    int    `json:"page,omitempty" jsonschema:"list: page number, starting at 1."`
 	PerPage int    `json:"perPage,omitempty" jsonschema:"list: results per page (default 20, max 100)."`
+	Full    bool   `json:"full,omitempty" jsonschema:"get: return Mealie's full object instead of the compact one."`
 }
 
 func addOrganizersRead(srv *mcp.Server, d Deps) error {
@@ -51,7 +54,7 @@ func addOrganizersRead(srv *mcp.Server, d Deps) error {
 		read:    true,
 	}, []action[organizersReadInput]{
 		{name: "list", help: "List organizers of a kind. Optional: search (not for cookbooks), page, perPage.", run: listOrganizers},
-		{name: "get", help: "Read one organizer. Needs slug or id.", run: getOrganizer},
+		{name: "get", help: "Read one organizer; linked recipes are listed by name. Needs slug or id. Optional: full.", run: getOrganizer},
 		{name: "empty", help: "List organizers that no recipe uses (not for cookbooks).", run: emptyOrganizers},
 	}, map[string][]any{"kind": organizerKindNames})
 }
@@ -93,7 +96,14 @@ func getOrganizer(ctx context.Context, s *session, in organizersReadInput) (any,
 	if err != nil {
 		return nil, err
 	}
-	return trimmed(raw, false)
+	if in.Full {
+		return view.Trim(raw)
+	}
+	var organizer map[string]any
+	if err := json.Unmarshal(raw, &organizer); err != nil {
+		return nil, fmt.Errorf("decoding the %s: %w", in.Kind, err)
+	}
+	return view.Compact(organizer, slices.Concat(organizerKinds[in.Kind].fields, []string{"recipes"})), nil
 }
 
 func emptyOrganizers(ctx context.Context, s *session, in organizersReadInput) (any, error) {
@@ -164,7 +174,8 @@ func createOrganizer(ctx context.Context, s *session, in organizersWriteInput) (
 }
 
 func updateOrganizer(ctx context.Context, s *session, in organizersWriteInput) (any, error) {
-	return updateByID(ctx, s, "update", organizerKinds[in.Kind].base, in.ID, in.Fields)
+	kind := organizerKinds[in.Kind]
+	return updateByID(ctx, s, "update", kind.base, in.ID, in.Fields, kind.fields)
 }
 
 func deleteOrganizer(ctx context.Context, s *session, in organizersWriteInput) (any, error) {

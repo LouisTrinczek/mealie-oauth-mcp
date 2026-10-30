@@ -462,7 +462,7 @@ func TestMealplansWrite_RuleUpdateMerges(t *testing.T) {
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "rule_update", "id": "u-1", "fields": map[string]any{"day": "friday"}})
-	if got, want := resultText(t, res), `{"day":"friday","extra":true,"id":"u-1"}`; res.IsError || got != want {
+	if got, want := resultText(t, res), `{"day":"friday","id":"u-1"}`; res.IsError || got != want {
 		t.Errorf("result = %s (error %v), want %s", got, res.IsError, want)
 	}
 	if seen := api.requests(); len(seen) != 2 || seen[1].Body != `{"day":"friday","extra":true,"id":"u-1"}` {

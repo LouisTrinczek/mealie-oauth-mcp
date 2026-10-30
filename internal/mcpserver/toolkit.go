@@ -262,12 +262,20 @@ func updateRaw(ctx context.Context, s *session, action, prefix, id string, field
 	return mergeUpdate(ctx, s, path, fields)
 }
 
-func updateByID(ctx context.Context, s *session, action, prefix, id string, fields map[string]any) (any, error) {
-	raw, err := updateRaw(ctx, s, action, prefix, id, fields)
+func updateByID(ctx context.Context, s *session, action, prefix, id string, changes map[string]any, fields []string) (any, error) {
+	raw, err := updateRaw(ctx, s, action, prefix, id, changes)
 	if err != nil {
 		return nil, err
 	}
-	return ok(raw), nil
+	return compactWrite(raw, fields), nil
+}
+
+func compactWrite(raw json.RawMessage, fields []string) any {
+	var written map[string]any
+	if json.Unmarshal(raw, &written) != nil || written == nil {
+		return ok(nil)
+	}
+	return view.Compact(written, fields)
 }
 
 func deleteByID(ctx context.Context, s *session, action, prefix, id string) (any, error) {

@@ -289,7 +289,7 @@ func deleteMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 }
 
 func updateMealplanRule(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	return updateByID(ctx, s, "rule_update", mealplanRulesPath, in.ID, in.Fields)
+	return updateByID(ctx, s, "rule_update", mealplanRulesPath, in.ID, in.Fields, mealplanRuleFields)
 }
 
 func deleteMealplanRule(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {

@@ -223,9 +223,7 @@ func TestRecipesWrite_UpdateSendsOnlyGivenFields(t *testing.T) {
 	if seen := api.requests(); !reflect.DeepEqual(seen, want) {
 		t.Errorf("requests = %+v, want %+v", seen, want)
 	}
-	if strings.Contains(resultText(t, res), "userId") {
-		t.Errorf("result %s is not trimmed", resultText(t, res))
-	}
+	assertGolden(t, "recipes_update", resultText(t, res))
 }
 
 func TestRecipesWrite_DeleteReportsSuccess(t *testing.T) {

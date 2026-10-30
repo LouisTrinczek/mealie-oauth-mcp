@@ -366,3 +366,24 @@ func TestOk(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactWrite(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want any
+	}{
+		{"Object", json.RawMessage(`{"id":"1","name":"A","extra":{"k":1}}`), map[string]any{"id": "1", "name": "A"}},
+		{"Empty", nil, map[string]bool{"ok": true}},
+		{"Null", json.RawMessage(`null`), map[string]bool{"ok": true}},
+		{"Array", json.RawMessage(`[1]`), map[string]bool{"ok": true}},
+		{"NotJSON", json.RawMessage(`done`), map[string]bool{"ok": true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := compactWrite(tt.raw, []string{"id", "name"}); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("compactWrite = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}

@@ -152,12 +152,14 @@ func TestHistoryWrite_MadeItPartialFailure(t *testing.T) {
 func TestHistoryWrite_UpdateMerges(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/recipes/timeline/events/e-1", http.StatusOK, eventBody)
-	api.on(http.MethodPut, "/api/recipes/timeline/events/e-1", http.StatusOK, eventBody)
+	api.on(http.MethodPut, "/api/recipes/timeline/events/e-1", http.StatusOK,
+		`{"id":"e-1","recipeId":"r-1","subject":"Renamed","eventType":"info","eventMessage":"Great","timestamp":"2026-10-30T12:00:00Z","image":"img.webp","extra":{"k":1}}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "history_write", map[string]any{"action": "update", "id": "e-1", "fields": map[string]any{"subject": "Renamed"}})
-	if res.IsError {
-		t.Fatalf("tool error: %s", resultText(t, res))
+	wantResult := `{"eventMessage":"Great","eventType":"info","id":"e-1","recipeId":"r-1","subject":"Renamed","timestamp":"2026-10-30T12:00:00Z"}`
+	if got := resultText(t, res); res.IsError || got != wantResult {
+		t.Errorf("result = %s (error %v), want %s", got, res.IsError, wantResult)
 	}
 	seen := api.requests()
 	want := `{"eventMessage":"Great","eventType":"info","groupId":"g-1","id":"e-1","image":null,"recipeId":"r-1","subject":"Renamed","timestamp":"2026-10-30T12:00:00Z","userId":"u-1"}`

@@ -92,11 +92,11 @@ func TestFeedbackWrite_Comment(t *testing.T) {
 func TestFeedbackWrite_UpdateComment(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/comments/c-1", http.StatusOK, commentBody)
-	api.on(http.MethodPut, "/api/comments/c-1", http.StatusOK, `{"id":"c-1","text":"Better","userId":"u-1","extra":"kept"}`)
+	api.on(http.MethodPut, "/api/comments/c-1", http.StatusOK, `{"id":"c-1","text":"Better","userId":"u-1","extra":"kept","user":{"id":"u-1","username":"alice","admin":false}}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "feedback_write", map[string]any{"action": "update_comment", "id": "c-1", "text": "Better"})
-	if got, want := resultText(t, res), `{"extra":"kept","id":"c-1","text":"Better"}`; res.IsError || got != want {
+	if got, want := resultText(t, res), `{"id":"c-1","text":"Better","user":{"id":"u-1","username":"alice"}}`; res.IsError || got != want {
 		t.Errorf("result = %s (error %v), want %s", got, res.IsError, want)
 	}
 	const mergedComment = `{"createdAt":"2026-10-30","id":"c-1","recipeId":"r-1","text":"Better","updatedAt":"2026-10-30","user":{"id":"u-1","username":"alice","admin":false,"fullName":"Alice A"},"userId":"u-1"}`

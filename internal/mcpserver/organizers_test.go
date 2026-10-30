@@ -91,6 +91,38 @@ func TestOrganizersRead_CookbookGetGolden(t *testing.T) {
 	assertGolden(t, "organizers_cookbook_get", resultText(t, res))
 }
 
+func TestOrganizersRead_GetCompactsLinkedRecipes(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/organizers/categories/slug/dinner", http.StatusOK,
+		`{"id":"c-1","name":"Dinner","slug":"dinner","groupId":"g-1","recipes":[{"id":"r-1","slug":"soup","name":"Soup","description":"long","recipeIngredient":[]},{"id":"r-2","slug":"stew","name":"Stew"}]}`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "organizers_read", map[string]any{"action": "get", "kind": "categories", "slug": "dinner"})
+	if got, want := resultText(t, res), `{"id":"c-1","name":"Dinner","recipes":["Soup","Stew"],"slug":"dinner"}`; res.IsError || got != want {
+		t.Errorf("result = %s (error %v), want %s", got, res.IsError, want)
+	}
+}
+
+func TestOrganizersRead_GetFullReturnsTrimmedObject(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/households/cookbooks/weeknights", http.StatusOK, cookbookBody)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "organizers_read", map[string]any{"action": "get", "kind": "cookbooks", "slug": "weeknights", "full": true})
+	assertGolden(t, "organizers_cookbook_get_full", resultText(t, res))
+}
+
+func TestOrganizersRead_GetRejectsNonObject(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/organizers/tags/t-1", http.StatusOK, `[1]`)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "organizers_read", map[string]any{"action": "get", "kind": "tags", "id": "t-1"})
+	if !res.IsError {
+		t.Errorf("result = %q, want an error", resultText(t, res))
+	}
+}
+
 func TestOrganizersRead_GetNeedsSlugOrID(t *testing.T) {
 	api := newFakeMealie(t)
 	cs := connectTools(t, api)
@@ -237,7 +269,7 @@ func TestOrganizersWrite_CreateNeedsName(t *testing.T) {
 func TestOrganizersWrite_UpdateMergesFields(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/organizers/tags/t-1", http.StatusOK, tagBody)
-	api.on(http.MethodPut, "/api/organizers/tags/t-1", http.StatusOK, `{"id":"t-1","name":"Fast","slug":"fast","groupId":"g-1"}`)
+	api.on(http.MethodPut, "/api/organizers/tags/t-1", http.StatusOK, `{"id":"t-1","name":"Fast","slug":"fast","groupId":"g-1","recipes":[{"id":"r-1","name":"Soup","description":"long"}]}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "organizers_write", map[string]any{"action": "update", "kind": "tags", "id": "t-1", "fields": map[string]any{"name": "Fast", "slug": "fast"}})

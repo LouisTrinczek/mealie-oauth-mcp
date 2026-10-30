@@ -179,7 +179,8 @@ func createIngredient(ctx context.Context, s *session, in ingredientsWriteInput)
 }
 
 func updateIngredient(ctx context.Context, s *session, in ingredientsWriteInput) (any, error) {
-	return updateByID(ctx, s, "update", ingredientKinds[in.Kind].base, in.ID, in.Fields)
+	kind := ingredientKinds[in.Kind]
+	return updateByID(ctx, s, "update", kind.base, in.ID, in.Fields, kind.fields)
 }
 
 func deleteIngredient(ctx context.Context, s *session, in ingredientsWriteInput) (any, error) {

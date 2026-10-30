@@ -111,7 +111,7 @@ func updateComment(ctx context.Context, s *session, in feedbackWriteInput) (any,
 	if err := need("update_comment", "text", in.Text); err != nil {
 		return nil, err
 	}
-	return updateByID(ctx, s, "update_comment", commentsPath, in.ID, map[string]any{"text": in.Text})
+	return updateByID(ctx, s, "update_comment", commentsPath, in.ID, map[string]any{"text": in.Text}, commentFields)
 }
 
 func deleteComment(ctx context.Context, s *session, in feedbackWriteInput) (any, error) {

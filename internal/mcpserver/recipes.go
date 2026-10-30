@@ -140,7 +140,7 @@ func updateRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, e
 	if err != nil {
 		return nil, err
 	}
-	return ok(raw), nil
+	return compactWrite(raw, recipeFields), nil
 }
 
 func duplicateRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, error) {

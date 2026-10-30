@@ -290,7 +290,7 @@ func TestIngredientsWrite_UpdateMergesFields(t *testing.T) {
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "ingredients_write", map[string]any{"action": "update", "kind": "units", "id": "u-1", "fields": map[string]any{"abbreviation": "gr"}})
-	if got, want := resultText(t, res), `{"abbreviation":"gr","extra":{"k":1},"id":"u-1","name":"gram"}`; res.IsError || got != want {
+	if got, want := resultText(t, res), `{"abbreviation":"gr","id":"u-1","name":"gram"}`; res.IsError || got != want {
 		t.Errorf("result = %s (error %v), want %s", got, res.IsError, want)
 	}
 	seen := api.requests()
