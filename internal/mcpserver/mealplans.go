@@ -160,16 +160,20 @@ func compactEntry(raw json.RawMessage) (any, error) {
 	return view.Compact(entry, mealplanFields), nil
 }
 
-func entryBody(ctx context.Context, s *session, action string, e mealplanEntry) (map[string]any, error) {
+func checkEntry(action string, e mealplanEntry) error {
 	if err := need(action, "date", e.Date); err != nil {
-		return nil, err
+		return err
 	}
 	if err := checkDate("date", e.Date); err != nil {
-		return nil, err
+		return err
 	}
 	if e.Slug == "" && e.Title == "" {
-		return nil, toolFailure(fmt.Sprintf("Action %q needs slug or title.", action))
+		return toolFailure(fmt.Sprintf("Action %q needs slug or title.", action))
 	}
+	return nil
+}
+
+func entryBody(ctx context.Context, s *session, e mealplanEntry) (map[string]any, error) {
 	body := map[string]any{"date": e.Date, "entryType": orDefaultEntryType(e.EntryType)}
 	if e.Title != "" {
 		body["title"] = e.Title
@@ -187,8 +191,8 @@ func entryBody(ctx context.Context, s *session, action string, e mealplanEntry) 
 	return body, nil
 }
 
-func postMealplan(ctx context.Context, s *session, action string, e mealplanEntry) (any, error) {
-	body, err := entryBody(ctx, s, action, e)
+func postMealplan(ctx context.Context, s *session, e mealplanEntry) (any, error) {
+	body, err := entryBody(ctx, s, e)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +204,18 @@ func postMealplan(ctx context.Context, s *session, action string, e mealplanEntr
 }
 
 func createMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	return postMealplan(ctx, s, "create", mealplanEntry{Date: in.Date, EntryType: in.EntryType, Slug: in.Slug, Title: in.Title, Text: in.Text})
+	entry := mealplanEntry{Date: in.Date, EntryType: in.EntryType, Slug: in.Slug, Title: in.Title, Text: in.Text}
+	if err := checkEntry("create", entry); err != nil {
+		return nil, err
+	}
+	return postMealplan(ctx, s, entry)
+}
+
+func dateOrNone(date string) string {
+	if date == "" {
+		return "no date"
+	}
+	return date
 }
 
 func bulkCreateMealplans(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
@@ -210,9 +225,14 @@ func bulkCreateMealplans(ctx context.Context, s *session, in mealplansWriteInput
 	if len(in.Entries) > maxBulkEntries {
 		return nil, toolFailure(fmt.Sprintf("bulk_create takes at most %d entries.", maxBulkEntries))
 	}
+	for i, e := range in.Entries {
+		if err := checkEntry("bulk_create", e); err != nil {
+			return nil, toolFailure(fmt.Sprintf("Entry %d (%s) is invalid: %s Nothing was created.", i+1, dateOrNone(e.Date), err))
+		}
+	}
 	created := make([]any, 0, len(in.Entries))
 	for i, e := range in.Entries {
-		entry, err := postMealplan(ctx, s, "bulk_create", e)
+		entry, err := postMealplan(ctx, s, e)
 		if err != nil {
 			return nil, toolFailure(fmt.Sprintf("Created %d of %d entries; entry %d (%s) failed: %s", i, len(in.Entries), i+1, e.Date, err))
 		}

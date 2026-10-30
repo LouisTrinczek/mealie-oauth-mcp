@@ -37,12 +37,13 @@ type fakeAPI struct {
 	server *httptest.Server
 	mu     sync.Mutex
 	routes map[string]cannedResponse
+	queued map[string][]cannedResponse
 	seen   []seenRequest
 }
 
 func newFakeMealie(t *testing.T) *fakeAPI {
 	t.Helper()
-	api := &fakeAPI{t: t, routes: map[string]cannedResponse{}}
+	api := &fakeAPI{t: t, routes: map[string]cannedResponse{}, queued: map[string][]cannedResponse{}}
 	api.server = httptest.NewServer(http.HandlerFunc(api.serve))
 	t.Cleanup(api.server.Close)
 	return api
@@ -52,6 +53,13 @@ func (a *fakeAPI) on(method, path string, status int, body string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.routes[method+" "+path] = cannedResponse{status: status, body: body}
+}
+
+func (a *fakeAPI) onceNext(method, path string, status int, body string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	key := method + " " + path
+	a.queued[key] = append(a.queued[key], cannedResponse{status: status, body: body})
 }
 
 func (a *fakeAPI) requests() []seenRequest {
@@ -68,7 +76,12 @@ func (a *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.EscapedPath()
 	a.mu.Lock()
 	a.seen = append(a.seen, seenRequest{Method: r.Method, Path: path, Query: r.URL.Query(), Body: string(body)})
-	response, found := a.routes[r.Method+" "+path]
+	key := r.Method + " " + path
+	response, found := a.routes[key]
+	if queue := a.queued[key]; len(queue) > 0 {
+		response, found = queue[0], true
+		a.queued[key] = queue[1:]
+	}
 	a.mu.Unlock()
 	if !found {
 		a.t.Errorf("unexpected Mealie request %s %s", r.Method, path)

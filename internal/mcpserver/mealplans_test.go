@@ -202,20 +202,49 @@ func TestMealplansWrite_CreateFailsWhenRecipeLookupFails(t *testing.T) {
 
 func TestMealplansWrite_BulkCreateReportsProgress(t *testing.T) {
 	api := newFakeMealie(t)
-	api.on(http.MethodPost, mealplansEndpoint, http.StatusCreated, entryBodyJSON)
+	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusCreated, entryBodyJSON)
+	api.onceNext(http.MethodPost, mealplansEndpoint, http.StatusUnprocessableEntity, `{"detail":"bad"}`)
 	cs := connectTools(t, api)
 
 	res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{
 		map[string]any{"date": "2026-10-31", "title": "A"},
-		map[string]any{"date": "2026-11-01"},
+		map[string]any{"date": "2026-11-01", "title": "B"},
 		map[string]any{"date": "2026-11-02", "title": "C"},
 	}})
-	want := `Created 1 of 3 entries; entry 2 (2026-11-01) failed: Action "bulk_create" needs slug or title.`
+	want := "Created 1 of 3 entries; entry 2 (2026-11-01) failed: Mealie rejected the request (422): bad. Fix the arguments and try again."
 	if got := resultText(t, res); !res.IsError || got != want {
 		t.Errorf("result = %q (error %v), want %q", got, res.IsError, want)
 	}
-	if seen := api.requests(); len(seen) != 1 {
-		t.Errorf("requests = %+v, want exactly one POST", seen)
+	if seen := api.requests(); len(seen) != 2 || seen[0].Method != http.MethodPost || seen[1].Method != http.MethodPost {
+		t.Errorf("requests = %+v, want exactly two POSTs", seen)
+	}
+}
+
+func TestMealplansWrite_BulkCreateValidatesEveryEntryFirst(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry map[string]any
+		want  string
+	}{
+		{"no slug or title", map[string]any{"date": "2026-11-01"}, `Entry 2 (2026-11-01) is invalid: Action "bulk_create" needs slug or title. Nothing was created.`},
+		{"bad date", map[string]any{"date": "soon", "title": "B"}, "Entry 2 (soon) is invalid: date must be YYYY-MM-DD. Nothing was created."},
+		{"no date", map[string]any{"title": "B"}, `Entry 2 (no date) is invalid: Action "bulk_create" needs date. Nothing was created.`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := newFakeMealie(t)
+			cs := connectTools(t, api)
+
+			res := callTool(t, cs, "mealplans_write", map[string]any{"action": "bulk_create", "entries": []any{
+				map[string]any{"date": "2026-10-31", "title": "A"}, tt.entry,
+			}})
+			if got := resultText(t, res); !res.IsError || got != tt.want {
+				t.Errorf("result = %q (error %v), want %q", got, res.IsError, tt.want)
+			}
+			if seen := api.requests(); len(seen) != 0 {
+				t.Errorf("requests = %+v, want none", seen)
+			}
+		})
 	}
 }
 
