@@ -87,7 +87,7 @@ func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, versio
 	a := &App{cfg: cfg, logger: logger, store: st, mealie: client, now: time.Now, shutdownGrace: shutdownGracePeriod}
 	auditLog := audit.New(logger)
 	sessions := a.sessionManager(keyring, auditLog)
-	tools, err := buildTools(mcpserver.Deps{Tokens: sessions, Mealie: client, Clock: a.now, Version: version})
+	tools, err := buildTools(mcpserver.Deps{Tokens: sessions, Mealie: client, Clock: a.now, Version: version, Logger: logger})
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("building MCP tools: %w", err), st.Close())
 	}

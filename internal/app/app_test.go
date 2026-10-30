@@ -811,6 +811,26 @@ func TestApp_NewFailsWhenToolsDoNotBuild(t *testing.T) {
 	_ = reopened.Close()
 }
 
+func TestApp_ToolsGetTheAppLogger(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	logger := slog.New(slog.DiscardHandler)
+	var got *slog.Logger
+	capture := func(d mcpserver.Deps) (*mcp.Server, error) {
+		got = d.Logger
+		return mcpserver.New(d)
+	}
+
+	a, err := newApp(t.Context(), cfg, logger, "test", capture)
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	if got != logger {
+		t.Errorf("tools logger = %p, want the app logger %p", got, logger)
+	}
+}
+
 func TestApp_ServeFailsWhenListenerBreaks(t *testing.T) {
 	a, _ := startApp(t)
 	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")

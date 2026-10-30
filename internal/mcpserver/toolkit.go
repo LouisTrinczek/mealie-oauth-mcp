@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -177,7 +178,7 @@ func addActionTool[In actionInput](srv *mcp.Server, d Deps, spec toolSpec, actio
 	choices := map[string][]any{"action": names}
 	maps.Copy(choices, enums)
 	tool := &mcp.Tool{Name: spec.name, Description: description.String(), Annotations: spec.annotations()}
-	return addSingleTool(srv, tool, choices, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+	return addSingleTool(srv, d.Logger, tool, choices, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		s, err := openSession(ctx, d, req)
 		if err != nil {
 			return nil, nil, err
@@ -190,7 +191,7 @@ func addActionTool[In actionInput](srv *mcp.Server, d Deps, spec toolSpec, actio
 	})
 }
 
-func addSingleTool[In any](srv *mcp.Server, tool *mcp.Tool, enums map[string][]any, handler mcp.ToolHandlerFor[In, any]) error {
+func addSingleTool[In any](srv *mcp.Server, logger *slog.Logger, tool *mcp.Tool, enums map[string][]any, handler mcp.ToolHandlerFor[In, any]) error {
 	schema, err := inputSchema[In](enums)
 	if err != nil {
 		return err
@@ -199,19 +200,26 @@ func addSingleTool[In any](srv *mcp.Server, tool *mcp.Tool, enums map[string][]a
 	read := tool.Annotations.ReadOnlyHint
 	mcp.AddTool(srv, tool, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		result, out, err := handler(ctx, req, in)
-		if err != nil {
-			return nil, nil, agentError(err, read)
+		if err == nil {
+			return result, out, nil
 		}
-		return result, out, nil
+		if !shownToAgent(err) {
+			logger.WarnContext(ctx, "unreadable Mealie response", "tool", tool.Name, "read", read, "error", err.Error())
+		}
+		return nil, nil, agentError(err, read)
 	})
 	return nil
 }
 
-func agentError(err error, read bool) error {
+func shownToAgent(err error) bool {
 	var failure toolFailure
 	var segment *mealie.SegmentError
 	var denied *allowlist.DeniedError
-	if errors.As(err, &failure) || errors.As(err, &segment) || errors.As(err, &denied) || errors.Is(err, view.ErrTooLarge) {
+	return errors.As(err, &failure) || errors.As(err, &segment) || errors.As(err, &denied) || errors.Is(err, view.ErrTooLarge)
+}
+
+func agentError(err error, read bool) error {
+	if shownToAgent(err) {
 		return err
 	}
 	if read {

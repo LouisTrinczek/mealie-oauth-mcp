@@ -1,8 +1,10 @@
 package mcpserver
 
 import (
+	"bytes"
 	"flag"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -109,12 +111,20 @@ func fixedClock() time.Time {
 
 func toolDeps(t *testing.T, api *fakeAPI, tokens *fakeTokens) Deps {
 	t.Helper()
-	return Deps{Tokens: tokens, Mealie: api.client(t), Clock: fixedClock}
+	return Deps{Tokens: tokens, Mealie: api.client(t), Clock: fixedClock, Logger: slog.New(slog.DiscardHandler)}
 }
 
 func connectTools(t *testing.T, api *fakeAPI) *mcp.ClientSession {
 	t.Helper()
 	return connectInMemory(t, toolDeps(t, api, &fakeTokens{}))
+}
+
+func connectToolsWithLogs(t *testing.T, api *fakeAPI) (*mcp.ClientSession, *bytes.Buffer) {
+	t.Helper()
+	logs := &bytes.Buffer{}
+	d := toolDeps(t, api, &fakeTokens{})
+	d.Logger = slog.New(slog.NewTextHandler(logs, nil))
+	return connectInMemory(t, d), logs
 }
 
 func callTool(t *testing.T, cs *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {

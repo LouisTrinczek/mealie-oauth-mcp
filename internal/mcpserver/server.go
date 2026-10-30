@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -43,9 +44,13 @@ type Deps struct {
 	Mealie  MealieClient
 	Clock   func() time.Time
 	Version string
+	Logger  *slog.Logger
 }
 
 func New(d Deps) (*mcp.Server, error) {
+	if d.Logger == nil {
+		d.Logger = slog.New(slog.DiscardHandler)
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: d.Version}, nil)
 	closedWorld := false
 	mcp.AddTool(srv, &mcp.Tool{

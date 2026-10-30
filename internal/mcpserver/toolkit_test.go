@@ -425,6 +425,45 @@ func TestAgentError(t *testing.T) {
 	}
 }
 
+func TestAgentError_LogsReplacedError(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/households/shopping/lists", http.StatusOK, `null`)
+	cs, logs := connectToolsWithLogs(t, api)
+
+	requireToolError(t, callTool(t, cs, "shopping_read", map[string]any{"action": "lists"}), string(errUnreadableRead))
+
+	line := logs.String()
+	for _, want := range []string{`level=WARN`, `msg="unreadable Mealie response"`, `tool=shopping_read`, `read=true`, `error="decoding page: Mealie returned null"`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("log = %q, want it to contain %q", line, want)
+		}
+	}
+	if strings.Contains(line, testMealieToken) {
+		t.Errorf("log = %q leaks the Mealie token", line)
+	}
+}
+
+func TestAgentError_PassThroughLogsNothing(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/households/shopping/lists", http.StatusNotFound, `{"detail":"gone"}`)
+	cs, logs := connectToolsWithLogs(t, api)
+
+	if res := callTool(t, cs, "shopping_read", map[string]any{"action": "lists"}); !res.IsError {
+		t.Fatalf("result = %s, want a tool error", resultText(t, res))
+	}
+	if logs.Len() != 0 {
+		t.Errorf("log = %q, want nothing logged", logs.String())
+	}
+}
+
+func TestNew_DefaultsMissingLogger(t *testing.T) {
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/households/shopping/lists", http.StatusOK, `null`)
+	cs := connectInMemory(t, Deps{Tokens: &fakeTokens{}, Mealie: api.client(t), Clock: fixedClock})
+
+	requireToolError(t, callTool(t, cs, "shopping_read", map[string]any{"action": "lists"}), string(errUnreadableRead))
+}
+
 func TestActionTool_UnreadableReadResponse(t *testing.T) {
 	api := newFakeMealie(t)
 	api.on(http.MethodGet, "/api/households/shopping/lists", http.StatusOK, `null`)
