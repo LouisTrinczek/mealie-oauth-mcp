@@ -101,7 +101,7 @@ type shoppingItem struct {
 	Note     *string  `json:"note,omitempty" jsonschema:"Free-text item, e.g. 2 lemons."`
 	Display  string   `json:"display,omitempty" jsonschema:"add_items only: item text, saved as the note when note is empty (Mealie derives the shown text itself). update_items ignores it; change note instead."`
 	Quantity *float64 `json:"quantity,omitempty" jsonschema:"Quantity of the item."`
-	Checked  *bool    `json:"checked,omitempty" jsonschema:"update_items: true to check the item off, false to uncheck it."`
+	Checked  *bool    `json:"checked,omitempty" jsonschema:"update_items: true to check the item off, false to uncheck it. add_items: creates the item already checked."`
 	FoodID   string   `json:"foodId,omitempty" jsonschema:"Food id."`
 	UnitID   string   `json:"unitId,omitempty" jsonschema:"Unit id."`
 	LabelID  string   `json:"labelId,omitempty" jsonschema:"Label id."`
