@@ -158,7 +158,8 @@ Mealie ships every one to two weeks and adds fields freely:
 
 ## Adding a tool
 
-Tools are grouped by area and split into a `_read` and a `_write` tool. Each
+Tools are grouped by area. Each area has a `_read` tool, and each area that
+changes data also has a `_write` tool; account has only `account_read`. Each
 action is one entry in that tool's list. If your change fits an existing
 tool, add an action to it. Add a new tool only for a new area.
 
