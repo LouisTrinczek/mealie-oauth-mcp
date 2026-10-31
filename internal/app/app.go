@@ -85,7 +85,7 @@ func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, versio
 	if err != nil {
 		return nil, fmt.Errorf("loading encryption keys: %w", err)
 	}
-	provider, shutdownTracing, err := tracing.Setup(ctx, cfg.TracingEnabled, version, export)
+	provider, shutdownTracing, err := tracing.Setup(ctx, cfg.TracingEnabled, version, export, logger)
 	if err != nil {
 		return nil, fmt.Errorf("starting tracing: %w", err)
 	}

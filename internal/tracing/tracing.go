@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -29,7 +30,7 @@ func OTLP(ctx context.Context) (sdktrace.SpanExporter, error) {
 	return otlptracehttp.New(ctx)
 }
 
-func Setup(ctx context.Context, enabled bool, version string, export Exporter) (trace.TracerProvider, func(context.Context) error, error) {
+func Setup(ctx context.Context, enabled bool, version string, export Exporter, logger *slog.Logger) (trace.TracerProvider, func(context.Context) error, error) {
 	if !enabled {
 		return noop.NewTracerProvider(), func(context.Context) error { return nil }, nil
 	}
@@ -38,7 +39,7 @@ func Setup(ctx context.Context, enabled bool, version string, export Exporter) (
 		return nil, nil, fmt.Errorf("starting OTLP exporter: %w", err)
 	}
 	provider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithBatcher(loggingExporter{SpanExporter: exporter, logger: logger}),
 		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceName(serviceName),
@@ -46,6 +47,18 @@ func Setup(ctx context.Context, enabled bool, version string, export Exporter) (
 		)),
 	)
 	return provider, provider.Shutdown, nil
+}
+
+type loggingExporter struct {
+	sdktrace.SpanExporter
+	logger *slog.Logger
+}
+
+func (e loggingExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	if err := e.SpanExporter.ExportSpans(ctx, spans); err != nil {
+		e.logger.WarnContext(ctx, "exporting traces failed", slog.Any("error", err))
+	}
+	return nil
 }
 
 func Tracer(tp trace.TracerProvider) trace.Tracer {

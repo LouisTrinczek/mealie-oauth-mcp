@@ -1,8 +1,11 @@
 package tracing
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -118,7 +121,7 @@ func TestSetup_DisabledIsNoop(t *testing.T) {
 		called = true
 		return nil, nil
 	}
-	tp, shutdown, err := Setup(context.Background(), false, "1.2.3", export)
+	tp, shutdown, err := Setup(context.Background(), false, "1.2.3", export, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
@@ -137,7 +140,7 @@ func TestSetup_DisabledIsNoop(t *testing.T) {
 
 func TestSetup_ExporterFailure(t *testing.T) {
 	export := func(context.Context) (sdktrace.SpanExporter, error) { return nil, errors.New("boom") }
-	_, _, err := Setup(context.Background(), true, "1.2.3", export)
+	_, _, err := Setup(context.Background(), true, "1.2.3", export, slog.New(slog.DiscardHandler))
 	if err == nil || !strings.Contains(err.Error(), "starting OTLP exporter: boom") {
 		t.Errorf("err = %v", err)
 	}
@@ -146,7 +149,7 @@ func TestSetup_ExporterFailure(t *testing.T) {
 func TestSetup_ExportsWithServiceResource(t *testing.T) {
 	memory := tracetest.NewInMemoryExporter()
 	export := func(context.Context) (sdktrace.SpanExporter, error) { return retainingExporter{memory}, nil }
-	tp, shutdown, err := Setup(context.Background(), true, "1.2.3", export)
+	tp, shutdown, err := Setup(context.Background(), true, "1.2.3", export, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
@@ -170,7 +173,7 @@ func TestSetup_ExportsWithServiceResource(t *testing.T) {
 
 func TestSetup_UnreachableCollectorDoesNotBlock(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
-	tp, shutdown, err := Setup(context.Background(), true, "t", OTLP)
+	tp, shutdown, err := Setup(context.Background(), true, "t", OTLP, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
@@ -227,5 +230,40 @@ func TestMiddleware_MalformedTraceparentStartsRootSpan(t *testing.T) {
 	}
 	if !spans[0].SpanContext.TraceID().IsValid() {
 		t.Error("trace id is not valid")
+	}
+}
+
+type failingExporter struct{ retainingExporter }
+
+func (failingExporter) ExportSpans(context.Context, []sdktrace.ReadOnlySpan) error {
+	return errors.New("collector refused connection")
+}
+
+func TestSetup_LogsExportFailuresThroughLogger(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	export := func(context.Context) (sdktrace.SpanExporter, error) {
+		return failingExporter{retainingExporter{tracetest.NewInMemoryExporter()}}, nil
+	}
+	tp, shutdown, err := Setup(context.Background(), true, "1.2.3", export, logger)
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	_, span := Tracer(tp).Start(context.Background(), "span-content-marker")
+	span.End()
+
+	if err := shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatalf("want one JSON log line, got %q: %v", logs.String(), err)
+	}
+	if entry["level"] != "WARN" || entry["msg"] != "exporting traces failed" || entry["error"] != "collector refused connection" {
+		t.Errorf("log entry = %v", entry)
+	}
+	if strings.Contains(logs.String(), "span-content-marker") {
+		t.Errorf("log leaks span content: %s", logs.String())
 	}
 }
