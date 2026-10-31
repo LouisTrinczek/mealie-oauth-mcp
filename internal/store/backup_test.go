@@ -96,7 +96,25 @@ func TestBackup_UnwritableDestination(t *testing.T) {
 	err := Backup(t.Context(), dataDir, filepath.Join(t.TempDir(), "missing-dir", "b.db"))
 
 	if err == nil || !strings.Contains(err.Error(), "creating backup file") {
-		t.Fatalf("err = %v, want writing backup", err)
+		t.Fatalf("err = %v, want creating backup file", err)
+	}
+}
+
+func TestOpenAndBackup_RelativeDataDir(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.Mkdir("data", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := openTemp(t, "data")
+	t.Cleanup(func() { _ = source.Close() })
+	seedSession(t, source, testSession("s1"), "hash-1")
+
+	if err := Backup(t.Context(), "data", "b.db"); err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join("data", databaseFile)); err != nil {
+		t.Errorf("database not created inside the relative directory: %v", err)
 	}
 }
 

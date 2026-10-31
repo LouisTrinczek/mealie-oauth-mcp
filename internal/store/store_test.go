@@ -198,6 +198,22 @@ func TestOpen_ReleasesLockAfterFailure(t *testing.T) {
 	}
 }
 
+func TestOpen_SQLOpenFailsReleasesLock(t *testing.T) {
+	dir := t.TempDir()
+	boom := errors.New("boom")
+	failing := func(string, string) (*sql.DB, error) { return nil, boom }
+
+	_, err := open(context.Background(), failing, dir, slog.New(slog.DiscardHandler))
+
+	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "opening database") {
+		t.Fatalf("err = %v, want opening database: boom", err)
+	}
+	s := openTemp(t, dir)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func TestOpen_LockPathUnusable(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, lockFileName), 0o700); err != nil {
