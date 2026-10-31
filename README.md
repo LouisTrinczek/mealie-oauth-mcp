@@ -435,6 +435,10 @@ and how to [add a tool](CONTRIBUTING.md#adding-a-tool).
 
 ### Project layout
 
+For how the pieces fit together, see the
+[architecture overview](docs/architecture.md) and the
+[decision records](docs/adr/README.md).
+
 ```
 cmd/mealie-oauth-mcp/   main package: config, wiring, startup
 internal/               server packages (not importable by other modules)
