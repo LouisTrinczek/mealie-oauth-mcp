@@ -48,6 +48,8 @@ const (
 	testTimeout         = 5 * time.Minute
 	maxRedirects        = 10
 	maxRateLimitRetries = 3
+	startupTimeout      = 10 * time.Second
+	startupPoll         = 50 * time.Millisecond
 )
 
 type syncBuffer struct {
@@ -134,6 +136,7 @@ type flow struct {
 	consentURL   string
 	code         string
 	tokens       tokens
+	metricsURL   string
 }
 
 func TestFullFlow(t *testing.T) {
@@ -152,6 +155,7 @@ func TestFullFlow(t *testing.T) {
 		{"refresh_rotates_and_reuse_is_rejected", f.refreshAndReuse},
 		{"second_authorize_skips_consent", f.authorizeWithoutConsent},
 		{"revoke_ends_the_session", f.revoke},
+		{"metrics", f.scrapeMetrics},
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, step.run) {
@@ -167,8 +171,8 @@ func startedFlow(t *testing.T) *flow {
 	logs := &syncBuffer{}
 	leaks := leakWatch{}
 	t.Cleanup(func() { leaks.check(t, logs.String()) })
-	startServer(ctx, t, logs, leaks)
-	return newFlow(ctx, t, leaks)
+	metricsAddr := startServer(ctx, t, logs, leaks)
+	return newFlow(ctx, t, leaks, metricsAddr)
 }
 
 func loggedInSession(t *testing.T) *mcp.ClientSession {
@@ -180,7 +184,7 @@ func loggedInSession(t *testing.T) *mcp.ClientSession {
 	return f.connect(t)
 }
 
-func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWatch) {
+func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWatch) string {
 	t.Helper()
 	keyMaterial := make([]byte, 32)
 	_, _ = rand.Read(keyMaterial)
@@ -193,6 +197,7 @@ func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWa
 		"ENCRYPTION_KEYS":     "it:" + key,
 		"DATA_DIR":            t.TempDir(),
 		"LISTEN_ADDR":         listenAddr,
+		"METRICS_ADDR":        freeLocalAddr(ctx, t),
 		"LOG_LEVEL":           "debug",
 	}
 	cfg, err := config.Load(func(name string) (string, bool) { v, ok := env[name]; return v, ok }, os.ReadFile)
@@ -208,39 +213,67 @@ func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWa
 			t.Errorf("closing app: %v", err)
 		}
 	})
-	serve(ctx, t, cfg.ListenAddr, a.Handler())
+	run(ctx, t, a)
+	return cfg.MetricsAddr
 }
 
-func serve(ctx context.Context, t *testing.T, addr string, handler http.Handler) {
+func freeLocalAddr(ctx context.Context, t *testing.T) string {
 	t.Helper()
-	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", addr)
+	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("listening on %s: %v", addr, err)
+		t.Fatalf("finding a free port: %v", err)
 	}
-	srv := &http.Server{Handler: handler, ReadHeaderTimeout: requestTimeout}
-	served := make(chan error, 1)
-	go func() { served <- srv.Serve(listener) }()
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("releasing the free port: %v", err)
+	}
+	return addr
+}
+
+func run(ctx context.Context, t *testing.T, a *app.App) {
+	t.Helper()
+	runCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	done := make(chan error, 1)
+	go func() { done <- a.Run(runCtx) }()
 	t.Cleanup(func() {
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), requestTimeout)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			t.Errorf("shutting down server: %v", err)
-		}
-		if err := <-served; !errors.Is(err, http.ErrServerClosed) {
-			t.Errorf("serving: %v", err)
+		stop()
+		if err := <-done; err != nil {
+			t.Errorf("running app: %v", err)
 		}
 	})
+	waitUntilServing(ctx, t)
 }
 
-func newFlow(ctx context.Context, t *testing.T, leaks leakWatch) *flow {
+func waitUntilServing(ctx context.Context, t *testing.T) {
+	t.Helper()
+	client := &http.Client{Timeout: requestTimeout}
+	for deadline := time.Now().Add(startupTimeout); time.Now().Before(deadline); time.Sleep(startupPoll) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, publicURL+"/healthz", nil)
+		if err != nil {
+			t.Fatalf("building healthz request: %v", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return
+		}
+	}
+	t.Fatalf("server did not answer /healthz within %v", startupTimeout)
+}
+
+func newFlow(ctx context.Context, t *testing.T, leaks leakWatch, metricsAddr string) *flow {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatalf("creating cookie jar: %v", err)
 	}
 	f := &flow{
-		ctx:   ctx,
-		leaks: leaks,
+		ctx:        ctx,
+		leaks:      leaks,
+		metricsURL: "http://" + metricsAddr + "/metrics",
 		api: &http.Client{
 			Timeout:       requestTimeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -516,6 +549,17 @@ func (f *flow) revoke(t *testing.T) {
 		t.Fatalf("POST /mcp after revoke: status %d, want 401", status)
 	}
 	assertInvalidGrant(t, f.refresh(t, f.tokens.RefreshToken))
+}
+
+func (f *flow) scrapeMetrics(t *testing.T) {
+	got := send(t, f.api, f.request(t, http.MethodGet, f.metricsURL, nil))
+	if got.status != http.StatusOK {
+		t.Fatalf("scraping metrics: status %d", got.status)
+	}
+	want := `mealie_mcp_audit_events_total{event="` + string(audit.LoginSucceeded) + `"}`
+	if !strings.Contains(string(got.body), want) {
+		t.Errorf("scrape missing %q", want)
+	}
 }
 
 func (f *flow) startLogin(t *testing.T) reply {

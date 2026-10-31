@@ -12,17 +12,20 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/audit"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/config"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/httpx"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mcpserver"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/oauth"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/obs"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/session"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/store"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/tokencrypt"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/tracing"
 )
 
 const (
@@ -33,6 +36,8 @@ const (
 	maxHeaderBytes      = 64 << 10
 	shutdownTimeout     = 20 * time.Second
 	shutdownGracePeriod = 5 * time.Second
+	metricsWriteTimeout = 10 * time.Second
+	tracingFlushTimeout = 5 * time.Second
 
 	mcpSessionTimeout   = 30 * time.Minute
 	mcpMaxRequestBytes  = 4 << 20
@@ -56,43 +61,74 @@ type App struct {
 	now           func() time.Time
 	handler       http.Handler
 	shutdownGrace time.Duration
+	metrics       *metrics.Registry
+	tracing       trace.TracerProvider
+	flushTracing  func() error
 }
 
 func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) (*App, error) {
-	return newApp(ctx, cfg, logger, version, mcpserver.New)
+	return newApp(ctx, cfg, logger, version, mcpserver.New, tracing.OTLP)
 }
 
-func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string, buildTools func(mcpserver.Deps) (*mcp.Server, error)) (*App, error) {
+func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string, buildTools func(mcpserver.Deps) (*mcp.Server, error), export tracing.Exporter) (*App, error) {
 	keyring, err := tokencrypt.NewKeyring(cfg.EncryptionKeys)
 	if err != nil {
 		return nil, fmt.Errorf("loading encryption keys: %w", err)
 	}
-	warnWithoutTrustedProxies(ctx, cfg, logger)
-	client := mealie.New(cfg.MealieURL, mealie.Options{UserAgent: userAgentPrefix + version})
+	provider, shutdownTracing, err := tracing.Setup(ctx, cfg.TracingEnabled, version, export)
+	if err != nil {
+		return nil, fmt.Errorf("starting tracing: %w", err)
+	}
+	a := &App{
+		cfg:           cfg,
+		logger:        logger,
+		now:           time.Now,
+		shutdownGrace: shutdownGracePeriod,
+		metrics:       metrics.New(),
+		tracing:       provider,
+		flushTracing:  flushWithin(context.WithoutCancel(ctx), shutdownTracing),
+	}
+	if err := a.wire(ctx, keyring, version, buildTools); err != nil {
+		return nil, errors.Join(err, a.flushTracing())
+	}
+	return a, nil
+}
+
+func (a *App) wire(ctx context.Context, keyring *tokencrypt.Keyring, version string, buildTools func(mcpserver.Deps) (*mcp.Server, error)) error {
+	warnWithoutTrustedProxies(ctx, a.cfg, a.logger)
+	a.mealie = mealie.New(a.cfg.MealieURL, mealie.Options{UserAgent: userAgentPrefix + version, Metrics: a.metrics, Tracing: a.tracing})
 	check := startupCheck{
-		mealie:       client,
-		mealieURL:    cfg.MealieURL.String(),
-		logger:       logger,
+		mealie:       a.mealie,
+		mealieURL:    a.cfg.MealieURL.String(),
+		logger:       a.logger,
 		retries:      startupRetries,
 		retryDelay:   startupRetryDelay,
 		reachTimeout: startupReachLimit,
 	}
 	if err := check.run(ctx); err != nil {
-		return nil, err
+		return err
 	}
-	st, err := store.Open(ctx, cfg.DataDir, logger)
+	st, err := store.Open(ctx, a.cfg.DataDir, a.logger)
 	if err != nil {
-		return nil, fmt.Errorf("opening store: %w", err)
+		return fmt.Errorf("opening store: %w", err)
 	}
-	a := &App{cfg: cfg, logger: logger, store: st, mealie: client, now: time.Now, shutdownGrace: shutdownGracePeriod}
-	auditLog := audit.New(logger, nil)
+	a.store = st
+	auditLog := audit.New(a.logger, a.metrics)
 	sessions := a.sessionManager(keyring, auditLog)
-	tools, err := buildTools(mcpserver.Deps{Tokens: sessions, Mealie: client, Clock: a.now, Version: version, Logger: logger})
+	tools, err := buildTools(mcpserver.Deps{
+		Tokens:  sessions,
+		Mealie:  a.mealie,
+		Clock:   a.now,
+		Version: version,
+		Logger:  a.logger,
+		Metrics: a.metrics,
+		Tracing: a.tracing,
+	})
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("building MCP tools: %w", err), st.Close())
+		return errors.Join(fmt.Errorf("building MCP tools: %w", err), st.Close())
 	}
 	a.handler = a.routes(keyring, auditLog, sessions, tools)
-	return a, nil
+	return nil
 }
 
 func warnWithoutTrustedProxies(ctx context.Context, cfg *config.Config, logger *slog.Logger) {
@@ -106,7 +142,18 @@ func (a *App) Handler() http.Handler {
 }
 
 func (a *App) Close() error {
-	return a.store.Close()
+	return errors.Join(a.flushTracing(), a.store.Close())
+}
+
+func flushWithin(ctx context.Context, shutdown func(context.Context) error) func() error {
+	return func() error {
+		ctx, cancel := context.WithTimeout(ctx, tracingFlushTimeout)
+		defer cancel()
+		if err := shutdown(ctx); err != nil {
+			return fmt.Errorf("flushing traces: %w", err)
+		}
+		return nil
+	}
 }
 
 func (a *App) sessionManager(keyring *tokencrypt.Keyring, auditLog *audit.Logger) *session.Manager {
@@ -170,8 +217,10 @@ func (a *App) mcpHandler(sessions *session.Manager, tools *mcp.Server) http.Hand
 }
 
 func (a *App) withMiddleware(next http.Handler) http.Handler {
+	next = a.metrics.Middleware(next)
 	next = httpx.SecurityHeaders(a.publicURLIsHTTPS())(next)
 	next = obs.AccessLog(a.logger)(next)
+	next = tracing.Middleware(a.tracing)(next)
 	next = obs.RequestID(next)
 	return httpx.Recover(a.logger)(next)
 }
@@ -211,54 +260,83 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("listening on %s: %w", a.cfg.ListenAddr, err)
 	}
 	a.logger.InfoContext(ctx, "listening", slog.String("addr", listener.Addr().String()))
-	return a.serve(ctx, listener)
+	if a.cfg.MetricsAddr == "" {
+		return a.serve(ctx, listener, nil)
+	}
+	metricsListener, err := new(net.ListenConfig).Listen(ctx, "tcp", a.cfg.MetricsAddr)
+	if err != nil {
+		return errors.Join(fmt.Errorf("listening on METRICS_ADDR %s: %w", a.cfg.MetricsAddr, err), listener.Close())
+	}
+	a.logger.InfoContext(ctx, "serving metrics", slog.String("addr", metricsListener.Addr().String()))
+	return a.serve(ctx, listener, metricsListener)
 }
 
-func (a *App) serve(ctx context.Context, listener net.Listener) error {
+func (a *App) serve(ctx context.Context, listener, metricsListener net.Listener) error {
 	ctx, stop := context.WithCancel(ctx)
+	a.refreshActiveSessions(ctx)
 	var cleanup sync.WaitGroup
 	cleanup.Go(func() { a.cleanupLoop(ctx, cleanupInterval) })
 
 	requests, endRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer endRequests()
 	srv := a.httpServer(requests)
-	served := make(chan error, 1)
+	servers := []*http.Server{srv}
+	served := make(chan error, 2)
 	go func() { served <- srv.Serve(listener) }()
+	if metricsListener != nil {
+		metricsSrv := a.metricsServer()
+		servers = append(servers, metricsSrv)
+		go func() { served <- metricsSrv.Serve(metricsListener) }()
+	}
 
 	var err error
 	select {
 	case err = <-served:
 		err = fmt.Errorf("serving http: %w", err)
 	case <-ctx.Done():
-		err = a.shutdown(ctx, srv, endRequests)
 	}
+	err = errors.Join(err, a.shutdown(ctx, servers, endRequests))
 	stop()
 	cleanup.Wait()
 	return err
 }
 
 func (a *App) httpServer(requests context.Context) *http.Server {
+	srv := a.newServer(a.handler, writeTimeout)
+	srv.BaseContext = func(net.Listener) context.Context { return requests }
+	return srv
+}
+
+func (a *App) metricsServer() *http.Server {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", a.metrics.Handler())
+	return a.newServer(mux, metricsWriteTimeout)
+}
+
+func (a *App) newServer(handler http.Handler, writeLimit time.Duration) *http.Server {
 	return &http.Server{
-		Handler:           a.handler,
-		BaseContext:       func(net.Listener) context.Context { return requests },
+		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
+		WriteTimeout:      writeLimit,
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 		ErrorLog:          slog.NewLogLogger(a.logger.Handler(), slog.LevelWarn),
 	}
 }
 
-func (a *App) shutdown(ctx context.Context, srv *http.Server, endRequests context.CancelFunc) error {
+func (a *App) shutdown(ctx context.Context, servers []*http.Server, endRequests context.CancelFunc) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	graceOver := time.AfterFunc(a.shutdownGrace, endRequests)
 	defer graceOver.Stop()
-	if err := srv.Shutdown(ctx); err != nil {
-		return errors.Join(fmt.Errorf("shutting down http server: %w", err), srv.Close())
+	var errs []error
+	for _, srv := range servers {
+		if err := srv.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("shutting down http server: %w", err), srv.Close())
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (a *App) cleanupLoop(ctx context.Context, interval time.Duration) {
@@ -281,6 +359,16 @@ func (a *App) deleteExpired(ctx context.Context) {
 		return
 	}
 	a.logger.InfoContext(ctx, "deleted expired rows", slog.Int64("deleted", deleted))
+	a.refreshActiveSessions(ctx)
+}
+
+func (a *App) refreshActiveSessions(ctx context.Context) {
+	count, err := a.store.CountActiveSessions(ctx, a.now())
+	if err != nil {
+		a.logger.ErrorContext(ctx, "counting active sessions failed", slog.Any("error", err))
+		return
+	}
+	a.metrics.SetActiveSessions(count)
 }
 
 type incompatibleMealie string
