@@ -19,7 +19,7 @@ const (
 	databaseFile = "mealie-mcp.db"
 	lockFileName = ".lock"
 	busyTimeout  = "_pragma=busy_timeout(5000)"
-	dsnPragmas   = "?_pragma=journal_mode(WAL)&" + busyTimeout + "&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
+	dsnPragmas   = "_pragma=journal_mode(WAL)&" + busyTimeout + "&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
 )
 
 var (
@@ -42,7 +42,7 @@ func Open(ctx context.Context, dataDir string, logger *slog.Logger) (*Store, err
 	if err != nil {
 		return nil, err
 	}
-	db, _ := sql.Open("sqlite", "file:"+filepath.Join(dataDir, databaseFile)+dsnPragmas)
+	db, _ := sql.Open("sqlite", fileDSN(filepath.Join(dataDir, databaseFile), dsnPragmas))
 	db.SetMaxOpenConns(1)
 	if err := migrate(ctx, db, migrationFiles, logger); err != nil {
 		_ = db.Close()

@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +28,7 @@ func TestBackup_WhileStoreHoldsLock(t *testing.T) {
 		t.Fatalf("Backup: %v", err)
 	}
 
-	copied, err := sql.Open("sqlite", "file:"+dest+"?mode=ro")
+	copied, err := sql.Open("sqlite", fileDSN(dest, "mode=ro"))
 	if err != nil {
 		t.Fatalf("opening backup: %v", err)
 	}
@@ -70,7 +72,11 @@ func TestBackup_RefusesExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
-	if content, _ := root.ReadFile("b.db"); string(content) != "keep me" {
+	content, err := root.ReadFile("b.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "keep me" {
 		t.Errorf("existing file was modified: %q", content)
 	}
 }
@@ -89,7 +95,103 @@ func TestBackup_UnwritableDestination(t *testing.T) {
 
 	err := Backup(t.Context(), dataDir, filepath.Join(t.TempDir(), "missing-dir", "b.db"))
 
+	if err == nil || !strings.Contains(err.Error(), "creating backup file") {
+		t.Fatalf("err = %v, want writing backup", err)
+	}
+}
+
+func TestBackup_RefusesDanglingSymlink(t *testing.T) {
+	dataDir := t.TempDir()
+	seedDatabase(t, dataDir)
+	destDir := t.TempDir()
+	dest := filepath.Join(destDir, "b.db")
+	if err := os.Symlink(filepath.Join(destDir, "nowhere"), dest); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Backup(t.Context(), dataDir, dest)
+
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("err = %v, want already exists", err)
+	}
+}
+
+func TestBackup_FileMode(t *testing.T) {
+	dataDir := t.TempDir()
+	seedDatabase(t, dataDir)
+	dest := filepath.Join(t.TempDir(), "b.db")
+
+	if err := Backup(t.Context(), dataDir, dest); err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestBackup_DataDirIsAFile(t *testing.T) {
+	notADir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notADir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Backup(t.Context(), notADir, filepath.Join(t.TempDir(), "b.db"))
+
+	if err == nil || strings.Contains(err.Error(), "no database at") || !strings.Contains(err.Error(), "checking database") {
+		t.Fatalf("err = %v, want a checking database error", err)
+	}
+}
+
+func TestBackup_OpenFails(t *testing.T) {
+	dataDir := t.TempDir()
+	seedDatabase(t, dataDir)
+	boom := errors.New("boom")
+	open := func(string, string) (*sql.DB, error) { return nil, boom }
+
+	err := backup(t.Context(), open, dataDir, filepath.Join(t.TempDir(), "b.db"))
+
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+}
+
+func TestOpenAndBackup_SpecialCharactersInDataDir(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "odd#dir?x%20y")
+	if err := os.Mkdir(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := openTemp(t, dataDir)
+	t.Cleanup(func() { _ = source.Close() })
+	seedSession(t, source, testSession("s1"), "hash-1")
+	dest := filepath.Join(t.TempDir(), "b.db")
+
+	if err := Backup(t.Context(), dataDir, dest); err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dataDir, databaseFile)); err != nil {
+		t.Errorf("database not created inside the odd directory: %v", err)
+	}
+}
+
+func TestBackup_CanceledContextLeavesNoFile(t *testing.T) {
+	dataDir := t.TempDir()
+	seedDatabase(t, dataDir)
+	dest := filepath.Join(t.TempDir(), "b.db")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := Backup(ctx, dataDir, dest)
+
 	if err == nil || !strings.Contains(err.Error(), "writing backup") {
 		t.Fatalf("err = %v, want writing backup", err)
+	}
+	if _, statErr := os.Lstat(dest); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("partial backup left behind: %v", statErr)
 	}
 }
