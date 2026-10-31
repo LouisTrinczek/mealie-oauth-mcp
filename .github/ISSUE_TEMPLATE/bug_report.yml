@@ -6,7 +6,7 @@ body:
     id: version
     attributes:
       label: Version or image tag
-      description: For example 0.3.0 or the ghcr.io image tag you run.
+      description: For example 0.1.0, or the ghcr.io image tag you run.
     validations:
       required: true
   - type: input
