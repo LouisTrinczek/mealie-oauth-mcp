@@ -414,3 +414,26 @@ func TestLoad_ObservabilityErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestDataDir(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"unset", nil, "/data"},
+		{"empty", map[string]string{"DATA_DIR": ""}, "/data"},
+		{"set", map[string]string{"DATA_DIR": "/srv"}, "/srv"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getenv := func(name string) (string, bool) {
+				value, ok := tt.env[name]
+				return value, ok
+			}
+			if got := DataDir(getenv); got != tt.want {
+				t.Errorf("DataDir = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

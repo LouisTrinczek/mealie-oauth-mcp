@@ -18,7 +18,8 @@ import (
 const (
 	databaseFile = "mealie-mcp.db"
 	lockFileName = ".lock"
-	dsnPragmas   = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
+	busyTimeout  = "_pragma=busy_timeout(5000)"
+	dsnPragmas   = "?_pragma=journal_mode(WAL)&" + busyTimeout + "&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
 )
 
 var (
