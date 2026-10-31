@@ -1,0 +1,38 @@
+name: Identity provider compatibility
+description: Report whether login works with your identity provider
+labels: [idp-compatibility]
+body:
+  - type: input
+    id: identity-provider
+    attributes:
+      label: Identity provider and version
+    validations:
+      required: true
+  - type: input
+    id: mealie-version
+    attributes:
+      label: Mealie version
+    validations:
+      required: true
+  - type: textarea
+    id: redirect-uri
+    attributes:
+      label: Redirect URI setup
+      description: How you registered the redirect URIs for Mealie and for this server.
+    validations:
+      required: true
+  - type: dropdown
+    id: login-worked
+    attributes:
+      label: Did login work?
+      options:
+        - "Yes"
+        - With changes (explain in the notes)
+        - "No"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Settings that mattered and errors you saw. Remove tokens and secrets.
