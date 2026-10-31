@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.1.0...v0.2.0) (2026-10-31)
+
+
+### Features
+
+* add a healthcheck command and a Docker HEALTHCHECK for the image ([463e7d8](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/463e7d870ab7e6122c35105fcdf26fd1f3626400))
+
 ## 0.1.0 (2026-10-31)
 
 
