@@ -94,7 +94,8 @@ The OAuth endpoints are not affected.
 
 ## Configuration
 
-Every variable can be set in the environment. Empty values count as unset, except for `METRICS_ADDR`, where empty disables metrics.
+Every variable can be set in the environment. Empty values count as unset,
+except for `METRICS_ADDR`, where empty disables metrics.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
@@ -214,7 +215,7 @@ Metrics are served in Prometheus format on a separate listener, `METRICS_ADDR`
 | Metric | Meaning |
 |---|---|
 | `mealie_mcp_http_request_duration_seconds{route,code}` | HTTP request duration; `route` is the route pattern, or `unmatched` |
-| `mealie_mcp_tool_call_duration_seconds{tool,outcome}` | MCP tool call duration for every tool, including `whoami` |
+| `mealie_mcp_tool_call_duration_seconds{tool,outcome}` | MCP tool call duration for every tool, including `whoami`; `outcome` is `ok` or `error` |
 | `mealie_mcp_mealie_request_duration_seconds{method,outcome}` | Mealie API call duration; `outcome` is `ok`, `client_error`, `server_error`, `unreachable` or `canceled` |
 | `mealie_mcp_audit_events_total{event}` | Audit events by name |
 | `mealie_mcp_active_sessions` | Active sessions, refreshed at startup and after each cleanup run (every 10 minutes) |
@@ -250,15 +251,16 @@ writable path in the container, so write the copy there, take it out, and
 remove it from the volume:
 
 ```sh
-docker compose exec mealie-oauth-mcp /mealie-oauth-mcp backup /data/backup-$(date +%F).db
-docker compose cp mealie-oauth-mcp:/data/backup-<date>.db .
+f=backup-$(date +%F).db
+docker compose exec mealie-oauth-mcp /mealie-oauth-mcp backup /data/$f
+docker compose cp mealie-oauth-mcp:/data/$f .
 ```
 
 The image has no shell, so remove the copy from the volume with a helper
 container (find the volume name with `docker volume ls`):
 
 ```sh
-docker run --rm -v <project>_mcp-data:/data alpine:3 rm /data/backup-<date>.db
+docker run --rm -v <project>_mcp-data:/data alpine:3 rm /data/$f
 ```
 
 On a host with `sqlite3` installed and direct access to the volume's
@@ -270,19 +272,31 @@ sqlite3 <volume dir>/mealie-mcp.db "VACUUM INTO 'mcp.db'"
 
 ### Restore
 
+The server runs as user and group `65532`, so the restored file must belong
+to them.
+
 1. Stop the server.
-2. Replace `mealie-mcp.db` in the data volume with the backup.
-3. Delete `mealie-mcp.db-wal` and `mealie-mcp.db-shm` if they exist.
-4. Start the server.
+2. Replace `mealie-mcp.db` in the data volume with the backup and delete
+   `mealie-mcp.db-wal` and `mealie-mcp.db-shm` if they exist. A helper
+   container does it with the right owner:
+
+   ```sh
+   docker run --rm --user 65532:65532 \
+     -v <project>_mcp-data:/data -v "$PWD":/backup:ro alpine:3 \
+     sh -c 'rm -f /data/mealie-mcp.db-wal /data/mealie-mcp.db-shm && cp /backup/<file> /data/mealie-mcp.db'
+   ```
+
+3. Start the server.
 
 ### Continuous replication with Litestream
 
 [Litestream](https://litestream.io) can replicate the database to
-S3-compatible storage from a sidecar container that shares the data volume:
+S3-compatible storage from a sidecar container. Add this service to the
+example Compose file, which defines the `mcp-data` volume it shares:
 
 ```yaml
   litestream:
-    image: litestream/litestream:latest
+    image: litestream/litestream:0.5.17
     restart: unless-stopped
     command: replicate
     environment:
@@ -293,16 +307,28 @@ S3-compatible storage from a sidecar container that shares the data volume:
       - ./litestream.yml:/etc/litestream.yml:ro
 ```
 
+`litestream.yml`:
+
 ```yaml
 dbs:
   - path: /data/mealie-mcp.db
-    replicas:
-      - url: s3://<bucket>/mealie-mcp
+    replica:
+      url: s3://<bucket>/mealie-mcp
 ```
 
-To restore, stop the server and run
-`litestream restore -o /data/mealie-mcp.db s3://<bucket>/mealie-mcp` with the
-volume mounted, then delete any `-wal` and `-shm` files and start the server.
+To restore, stop the server and the sidecar, and move or remove the existing
+`mealie-mcp.db`, `mealie-mcp.db-wal` and `mealie-mcp.db-shm`, because
+`litestream restore` refuses to overwrite a file. Then run a one-off
+container as the server's user and start the server again:
+
+```sh
+docker run --rm --user 65532:65532 \
+  -e LITESTREAM_ACCESS_KEY_ID=<access-key-id> \
+  -e LITESTREAM_SECRET_ACCESS_KEY=<secret-access-key> \
+  -v <project>_mcp-data:/data \
+  litestream/litestream:0.5.17 \
+  restore -o /data/mealie-mcp.db s3://<bucket>/mealie-mcp
+```
 
 Losing the database only forces everyone to log in again. Keep the encryption
 keys separately: the database is useless without them.
@@ -311,8 +337,8 @@ keys separately: the database is useless without them.
 
 Versions follow [SemVer](https://semver.org) and commits follow
 [Conventional Commits](https://www.conventionalcommits.org). Each release has
-an entry in [`CHANGELOG.md`](CHANGELOG.md) and its notes say which Mealie
-version it was tested against.
+release-please maintains `CHANGELOG.md` from the first release on, and each
+release's notes say which Mealie version it was tested against.
 
 Images are published to `ghcr.io/louistrinczek/mealie-oauth-mcp` for
 `linux/amd64` and `linux/arm64` with the tags `<major>.<minor>.<patch>`,
