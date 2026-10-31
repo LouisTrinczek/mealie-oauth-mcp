@@ -177,6 +177,9 @@ func TestCountActiveSessions(t *testing.T) {
 	expired.ExpiresAt = now
 	seedSession(t, s, expired, "code-2")
 	seedSession(t, s, testSession("revoked"), "code-3")
+	idle := testSession("idle")
+	idle.MealieTokenExpiresAt = now
+	seedSession(t, s, idle, "code-4")
 	if err := s.RevokeSession(t.Context(), "revoked", baseTime); err != nil {
 		t.Fatalf("RevokeSession: %v", err)
 	}

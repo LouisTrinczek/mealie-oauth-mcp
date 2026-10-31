@@ -218,7 +218,7 @@ Metrics are served in Prometheus format on a separate listener, `METRICS_ADDR`
 | `mealie_mcp_tool_call_duration_seconds{tool,outcome}` | MCP tool call duration for every tool, including `whoami`; `outcome` is `ok` or `error` |
 | `mealie_mcp_mealie_request_duration_seconds{method,outcome}` | Mealie API call duration; `outcome` is `ok`, `client_error`, `server_error`, `unreachable` or `canceled` |
 | `mealie_mcp_audit_events_total{event}` | Audit events by name |
-| `mealie_mcp_active_sessions` | Active sessions, refreshed at startup and after each cleanup run (every 10 minutes) |
+| `mealie_mcp_active_sessions` | Sessions that are not revoked, not past `SESSION_MAX_AGE` and still hold an unexpired Mealie token, refreshed at startup and after each cleanup run (every 10 minutes) |
 
 The Go runtime and process collectors are included.
 
