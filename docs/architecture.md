@@ -87,7 +87,9 @@ call `run(ctx)`. Everything else is under `internal/`.
 | `/readyz` | Readiness: the database answers and Mealie is reachable |
 | `/metrics` | Prometheus metrics, on the separate `METRICS_ADDR` listener only |
 
-Use `/healthz` for restart decisions and `/readyz` for readiness probes.
+Use `/healthz` for restart decisions and `/readyz` for readiness probes. The
+image's Docker `HEALTHCHECK` calls `/healthz` through the binary's
+`healthcheck` command, since the distroless image has no shell or `curl`.
 
 ## Login flow
 
