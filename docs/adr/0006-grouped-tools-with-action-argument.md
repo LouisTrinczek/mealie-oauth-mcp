@@ -14,8 +14,9 @@ for example "always allow" for read-only ones.
 ## Decision
 
 Tools are grouped by area, such as recipes, meal plans and shopping. Each area
-has a `_read` tool and a `_write` tool. The tool takes an `action` argument
-that selects the operation. Read tools only read, so clients can allow them
+has a `_read` tool, and each area that changes data also has a `_write` tool;
+account has only `account_read`. The tool takes an `action` argument that
+selects the operation. Read tools only read, so clients can allow them
 without prompting. Write tools can change and delete data. Output is compact:
 lists show a few useful fields, and `get` results drop nulls and empty values.
 

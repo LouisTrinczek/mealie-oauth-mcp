@@ -52,11 +52,12 @@ rejects commits with unformatted Go files; enable it once per clone with
   `run(ctx)`. No business logic.
 - `internal/`: all other packages. There is no `pkg/`; nothing here is a
   public library.
-  Current packages: `app` (wiring, routes, startup checks), `audit`,
-  `codestyle` (no-comments test), `config`, `httpx` (middleware, rate
-  limiting), `mcpserver`, `mealie` (API client), `metrics` (Prometheus
-  metrics), `oauth`, `obs` (logging), `secret`, `session`, `store` (SQLite),
-  `token`, `tokencrypt`, `tracing` (OpenTelemetry tracing).
+  Current packages: `allowlist` (`mealie_api` path allowlist), `app`
+  (wiring, routes, startup checks), `audit`, `codestyle` (no-comments test),
+  `config`, `httpx` (middleware, rate limiting), `mcpserver`, `mealie` (API
+  client), `metrics` (Prometheus metrics), `oauth`, `obs` (logging),
+  `secret`, `session`, `store` (SQLite), `token`, `tokencrypt`, `tracing`
+  (OpenTelemetry tracing), `view` (compact tool output).
 - `deploy/`: example Compose file for self-hosters.
 - `dev/`: Compose file behind `make dev-up`.
 - `docs/`: `architecture.md` (architecture overview) and `adr/` (decision

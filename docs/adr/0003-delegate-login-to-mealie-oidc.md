@@ -31,6 +31,7 @@ in. Any identity provider that works with Mealie works here.
   `PUBLIC_URL/callback` on Mealie's OIDC client, because Mealie does not check
   the redirect URI.
 - Mealie never asks the identity provider again after login. The absolute
-  `SESSION_MAX_AGE` cap is the only way a deactivated account loses access.
+  `SESSION_MAX_AGE` cap is the only way a deactivated identity-provider
+  account loses access.
 - The flow depends on Mealie's native endpoints. The client decodes responses
   leniently, and `make dev-up` runs the flow against a local Mealie.

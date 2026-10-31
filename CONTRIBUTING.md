@@ -45,14 +45,14 @@ make dev-check   # run the dev environment test against the running stack
 make dev-down    # stop everything and delete its data
 ```
 
-Ports on the host:
+Ports on the host, all bound to `127.0.0.1`:
 
 | Port | Service |
 |---|---|
 | 9000 | Mealie |
 | 8080 | MCP server |
 | 8180 | Mock OIDC provider |
-| 9090 | Metrics (bound to `127.0.0.1`) |
+| 9090 | Metrics |
 
 If one of these ports is taken, stop the program that uses it and run
 `make dev-up` again. Don't remap the OIDC port: the issuer URL contains the
@@ -84,7 +84,6 @@ Before you open a pull request, run these and fix any failure:
 ```sh
 gofmt -l .        # no output expected
 go vet ./...
-make test
 make lint
 make cover
 ```
@@ -151,6 +150,10 @@ Mealie ships every one to two weeks and adds fields freely:
   [Developer Certificate of Origin](https://developercertificate.org/).
 - Keep one topic per pull request.
 - CI must be green, including the SonarQube quality gate.
+- `main` requires a pull request, 1 approving review and passing `lint`,
+  `test`, `dco` and `sonar` checks, and blocks force pushes and deletion.
+  The repo admin merges release-please pull requests through the ruleset
+  bypass.
 - Fill in the checklist in the pull request template.
 
 ## Adding a tool
