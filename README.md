@@ -94,7 +94,7 @@ The OAuth endpoints are not affected.
 
 ## Configuration
 
-Every variable can be set in the environment. Empty values count as unset.
+Every variable can be set in the environment. Empty values count as unset, except for `METRICS_ADDR`, where empty disables metrics.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
@@ -109,6 +109,8 @@ Every variable can be set in the environment. Empty values count as unset.
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
 | `LOG_FORMAT` | no | `json` | `json` or `text` |
 | `TRUSTED_PROXIES` | behind a reverse proxy | | Comma-separated CIDRs of reverse proxies whose `X-Forwarded-For` client address is trusted for rate limiting (see [Deployment](#deployment)) |
+| `METRICS_ADDR` | no | `127.0.0.1:9090` | Listen address for `/metrics` as `host:port`; set it empty to disable metrics (see [Monitoring](#monitoring)) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | | Absolute `http` or `https` URL of an OTLP/HTTP collector; tracing is on when set. The standard `OTEL_EXPORTER_OTLP_*` variables, such as `OTEL_EXPORTER_OTLP_HEADERS`, apply |
 | `INSECURE_ALLOW_HTTP` | no | `false` | Allows an `http://` `PUBLIC_URL`. Development and tests only |
 
 `ENCRYPTION_KEYS_FILE` is the only variable with a `_FILE` form. Prefer it
@@ -204,24 +206,139 @@ Breaking changes need a major version or a deprecation period.
 Login, consent, token, and session events are logged as JSON lines with
 `log_type` set to `audit`.
 
+## Monitoring
+
+Metrics are served in Prometheus format on a separate listener, `METRICS_ADDR`
+(default `127.0.0.1:9090`). `GET /metrics` on `LISTEN_ADDR` returns `404`.
+
+| Metric | Meaning |
+|---|---|
+| `mealie_mcp_http_request_duration_seconds{route,code}` | HTTP request duration; `route` is the route pattern, or `unmatched` |
+| `mealie_mcp_tool_call_duration_seconds{tool,outcome}` | MCP tool call duration for every tool, including `whoami` |
+| `mealie_mcp_mealie_request_duration_seconds{method,outcome}` | Mealie API call duration; `outcome` is `ok`, `client_error`, `server_error`, `unreachable` or `canceled` |
+| `mealie_mcp_audit_events_total{event}` | Audit events by name |
+| `mealie_mcp_active_sessions` | Active sessions, refreshed at startup and after each cleanup run (every 10 minutes) |
+
+The Go runtime and process collectors are included.
+
+The default address cannot be reached from outside the container. In Docker,
+set `METRICS_ADDR=:9090` and scrape `mealie-oauth-mcp:9090` from a Prometheus
+on the same Compose network. Never publish the port and never route
+`/metrics` through the reverse proxy.
+
+```yaml
+scrape_configs:
+  - job_name: mealie-oauth-mcp
+    static_configs:
+      - targets: ["mealie-oauth-mcp:9090"]
+```
+
+Tracing turns on when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Requests get a
+span named by route, tool calls get `tool <name>`, and calls to Mealie get
+`mealie <METHOD>`. An incoming W3C `traceparent` header is continued. Spans
+never record URLs, queries, headers, tokens or client addresses.
+
+`/healthz` reports liveness only. `/readyz` also checks the database and
+Mealie, so use it for readiness probes and `/healthz` for restart decisions.
+
 ## Backups
 
-All state lives in `/data/mealie-mcp.db`. Take a consistent copy while the
-server runs. The image has no shell and no `sqlite3`, so run the command from
-a separate container that mounts the data volume, for example with Alpine
-(replace `<project>_mcp-data` with your volume name from `docker volume ls`):
+All state lives in `/data/mealie-mcp.db`. The `backup` command copies it
+consistently while the server runs and refuses to overwrite an existing file
+or symlink. The copy is written with mode `0600`. `/data` is the only
+writable path in the container, so write the copy there, take it out, and
+remove it from the volume:
 
 ```sh
-docker run --rm -v <project>_mcp-data:/data -v "$PWD":/backup alpine:3 \
-  sh -c "apk add --no-cache sqlite >/dev/null && sqlite3 /data/mealie-mcp.db \"VACUUM INTO '/backup/mcp.db'\""
+docker compose exec mealie-oauth-mcp /mealie-oauth-mcp backup /data/backup-$(date +%F).db
+docker compose cp mealie-oauth-mcp:/data/backup-<date>.db .
+```
+
+The image has no shell, so remove the copy from the volume with a helper
+container (find the volume name with `docker volume ls`):
+
+```sh
+docker run --rm -v <project>_mcp-data:/data alpine:3 rm /data/backup-<date>.db
 ```
 
 On a host with `sqlite3` installed and direct access to the volume's
-directory, `sqlite3 <volume dir>/mealie-mcp.db "VACUUM INTO 'mcp.db'"` does
-the same.
+directory, this does the same without the `backup` command:
+
+```sh
+sqlite3 <volume dir>/mealie-mcp.db "VACUUM INTO 'mcp.db'"
+```
+
+### Restore
+
+1. Stop the server.
+2. Replace `mealie-mcp.db` in the data volume with the backup.
+3. Delete `mealie-mcp.db-wal` and `mealie-mcp.db-shm` if they exist.
+4. Start the server.
+
+### Continuous replication with Litestream
+
+[Litestream](https://litestream.io) can replicate the database to
+S3-compatible storage from a sidecar container that shares the data volume:
+
+```yaml
+  litestream:
+    image: litestream/litestream:latest
+    restart: unless-stopped
+    command: replicate
+    environment:
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY}
+    volumes:
+      - mcp-data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+```
+
+```yaml
+dbs:
+  - path: /data/mealie-mcp.db
+    replicas:
+      - url: s3://<bucket>/mealie-mcp
+```
+
+To restore, stop the server and run
+`litestream restore -o /data/mealie-mcp.db s3://<bucket>/mealie-mcp` with the
+volume mounted, then delete any `-wal` and `-shm` files and start the server.
 
 Losing the database only forces everyone to log in again. Keep the encryption
 keys separately: the database is useless without them.
+
+## Releases
+
+Versions follow [SemVer](https://semver.org) and commits follow
+[Conventional Commits](https://www.conventionalcommits.org). Each release has
+an entry in [`CHANGELOG.md`](CHANGELOG.md) and its notes say which Mealie
+version it was tested against.
+
+Images are published to `ghcr.io/louistrinczek/mealie-oauth-mcp` for
+`linux/amd64` and `linux/arm64` with the tags `<major>.<minor>.<patch>`,
+`<major>.<minor>`, `<major>` (from `1.0.0` on) and `latest`. Pin a full
+version in production. Binary archives for Linux and macOS are attached to
+each GitHub release.
+
+Verify an image signature and its build attestation:
+
+```sh
+cosign verify ghcr.io/louistrinczek/mealie-oauth-mcp:<version> \
+  --certificate-identity 'https://github.com/LouisTrinczek/mealie-oauth-mcp/.github/workflows/release.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+gh attestation verify oci://ghcr.io/louistrinczek/mealie-oauth-mcp:<version> --owner LouisTrinczek
+```
+
+Verify downloaded binaries against the signed checksums:
+
+```sh
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-identity 'https://github.com/LouisTrinczek/mealie-oauth-mcp/.github/workflows/release.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum -c checksums.txt
+```
 
 ## Encryption key rotation
 

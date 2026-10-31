@@ -52,8 +52,9 @@ rejects commits with unformatted Go files; enable it once per clone with
   public library.
   Current packages: `app` (wiring, routes, startup checks), `audit`,
   `codestyle` (no-comments test), `config`, `httpx` (middleware, rate
-  limiting), `mcpserver`, `mealie` (API client), `oauth`, `obs` (logging),
-  `secret`, `session`, `store` (SQLite), `token`, `tokencrypt`.
+  limiting), `mcpserver`, `mealie` (API client), `metrics` (Prometheus metrics), `oauth`,
+  `obs` (logging), `secret`, `session`, `store` (SQLite), `token`,
+  `tokencrypt`, `tracing` (OpenTelemetry tracing).
 - `deploy/`: example Compose file for self-hosters.
 - Create a package when there is code for it, not ahead of time. Name packages
   by what they provide (`oauth`, `mealie`, `store`), never `util` or `common`.
