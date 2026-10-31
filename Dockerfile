@@ -19,4 +19,6 @@ COPY --from=build --chown=nonroot:nonroot /out/data /data
 USER nonroot:nonroot
 VOLUME /data
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --start-interval=2s --retries=3 \
+    CMD ["/mealie-oauth-mcp", "healthcheck"]
 ENTRYPOINT ["/mealie-oauth-mcp"]

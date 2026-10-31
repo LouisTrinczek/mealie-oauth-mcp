@@ -243,6 +243,12 @@ never record URLs, queries, headers, tokens or client addresses.
 `/healthz` reports liveness only. `/readyz` also checks the database and
 Mealie, so use it for readiness probes and `/healthz` for restart decisions.
 
+The image's Docker `HEALTHCHECK` runs `mealie-oauth-mcp healthcheck`, which
+requests `/healthz` on the local listener (`LISTEN_ADDR`) and exits non-zero
+if that fails. `docker ps` shows the result, and other Compose services can
+wait for this one with `condition: service_healthy`. The image has no shell or
+`curl`, so use this command when you write your own probe.
+
 ## Backups
 
 All state lives in `/data/mealie-mcp.db`. The `backup` command copies it

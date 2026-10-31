@@ -79,11 +79,15 @@ func DataDir(getenv func(string) (string, bool)) string {
 	return environment{getenv: getenv}.lookup("DATA_DIR", defaultDataDir)
 }
 
+func ListenAddr(getenv func(string) (string, bool)) string {
+	return environment{getenv: getenv}.lookup("LISTEN_ADDR", defaultListenAddr)
+}
+
 func Load(getenv func(string) (string, bool), readFile func(string) ([]byte, error)) (*Config, error) {
 	env := environment{getenv: getenv, readFile: readFile}
 	cfg := &Config{
 		DataDir:    DataDir(getenv),
-		ListenAddr: env.lookup("LISTEN_ADDR", defaultListenAddr),
+		ListenAddr: ListenAddr(getenv),
 	}
 	var errs []error
 	collect := func(err error) {
