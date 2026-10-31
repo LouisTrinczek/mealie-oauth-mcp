@@ -1,7 +1,8 @@
 FUZZTIME ?= 30s
+GORELEASER_VERSION ?= v2.19.0
 INTEGRATION_COMPOSE = docker compose -f test/integration/compose.yml
 
-.PHONY: setup build test cover lint vuln fuzz test-integration
+.PHONY: setup build test cover lint vuln fuzz test-integration release-dry-run
 
 setup:
 	git config core.hooksPath .githooks
@@ -31,3 +32,6 @@ fuzz:
 
 test-integration:
 	$(INTEGRATION_COMPOSE) run --rm --build it; status=$$?; $(INTEGRATION_COMPOSE) down -v; exit $$status
+
+release-dry-run:
+	docker run --rm -v "$(CURDIR)":/src -w /src goreleaser/goreleaser:$(GORELEASER_VERSION) release --snapshot --clean --skip=sign,sbom
