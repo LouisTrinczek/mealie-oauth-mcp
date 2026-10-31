@@ -67,8 +67,8 @@ func TestEvent_CountsByType(t *testing.T) {
 	rec := httptest.NewRecorder()
 	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	for _, line := range []string{
-		`mealie_mcp_audit_events_total{event="login_failed"} 2`,
-		`mealie_mcp_audit_events_total{event="login_succeeded"} 1`,
+		`mealie_mcp_audit_events_total{event="login_failed"} 2` + "\n",
+		`mealie_mcp_audit_events_total{event="login_succeeded"} 1` + "\n",
 	} {
 		if !strings.Contains(rec.Body.String(), line) {
 			t.Errorf("metrics missing %q", line)

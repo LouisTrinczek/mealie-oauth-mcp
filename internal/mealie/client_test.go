@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -583,13 +584,12 @@ func TestRequest_ObservesEachAttempt(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 
-	rec := httptest.NewRecorder()
-	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	body := scrapeMetrics(t, registry)
 	for _, line := range []string{
-		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 1`,
-		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="ok"} 1`,
+		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 1` + "\n",
+		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="ok"} 1` + "\n",
 	} {
-		if !strings.Contains(rec.Body.String(), line) {
+		if !strings.Contains(body, line) {
 			t.Errorf("metrics missing %q", line)
 		}
 	}
@@ -661,7 +661,7 @@ func TestRequest_ObservesEveryExhaustedAttempt(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	want := `mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 3`
+	want := `mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 3` + "\n"
 	if !strings.Contains(scrapeMetrics(t, registry), want) {
 		t.Errorf("metrics missing %q", want)
 	}
@@ -672,8 +672,9 @@ func TestRequest_ObservesEveryExhaustedAttempt(t *testing.T) {
 
 func TestRequest_ObservesCanceledInFlight(t *testing.T) {
 	started := make(chan struct{})
+	var startOnce sync.Once
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		close(started)
+		startOnce.Do(func() { close(started) })
 		<-r.Context().Done()
 	}))
 	t.Cleanup(srv.Close)
@@ -693,7 +694,7 @@ func TestRequest_ObservesCanceledInFlight(t *testing.T) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 
-	want := `mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="canceled"} 1`
+	want := `mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="canceled"} 1` + "\n"
 	if !strings.Contains(scrapeMetrics(t, registry), want) {
 		t.Errorf("metrics missing %q", want)
 	}

@@ -33,8 +33,8 @@ func TestMiddleware_LabelsByRoutePattern(t *testing.T) {
 
 	body := scrape(t, registry)
 	for _, want := range []string{
-		`mealie_mcp_http_request_duration_seconds_count{code="302",route="GET /callback"} 1`,
-		`mealie_mcp_http_request_duration_seconds_count{code="404",route="unmatched"} 1`,
+		`mealie_mcp_http_request_duration_seconds_count{code="302",route="GET /callback"} 1` + "\n",
+		`mealie_mcp_http_request_duration_seconds_count{code="404",route="unmatched"} 1` + "\n",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape missing %q", want)
@@ -57,11 +57,11 @@ func TestObservers(t *testing.T) {
 
 	body := scrape(t, registry)
 	for _, want := range []string{
-		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="recipes_read"} 1`,
-		`mealie_mcp_tool_call_duration_seconds_count{outcome="error",tool="recipes_read"} 1`,
-		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 1`,
-		`mealie_mcp_audit_events_total{event="login_succeeded"} 1`,
-		`mealie_mcp_active_sessions 3`,
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="recipes_read"} 1` + "\n",
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="error",tool="recipes_read"} 1` + "\n",
+		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 1` + "\n",
+		`mealie_mcp_audit_events_total{event="login_succeeded"} 1` + "\n",
+		`mealie_mcp_active_sessions 3` + "\n",
 		`go_goroutines`,
 	} {
 		if !strings.Contains(body, want) {
@@ -75,7 +75,7 @@ func TestNew_RegistriesAreIndependent(t *testing.T) {
 	second := New()
 	first.CountAuditEvent("login_succeeded")
 
-	if !strings.Contains(scrape(t, first), `mealie_mcp_audit_events_total{event="login_succeeded"} 1`) {
+	if !strings.Contains(scrape(t, first), `mealie_mcp_audit_events_total{event="login_succeeded"} 1`+"\n") {
 		t.Error("first registry missing its own count")
 	}
 	if strings.Contains(scrape(t, second), "login_succeeded") {
@@ -92,7 +92,7 @@ func TestMiddleware_DefaultsToStatus200WhenHandlerNeverWritesHeader(t *testing.T
 
 	registry.Middleware(mux).ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/plain", nil))
 
-	want := `mealie_mcp_http_request_duration_seconds_count{code="200",route="GET /plain"} 1`
+	want := `mealie_mcp_http_request_duration_seconds_count{code="200",route="GET /plain"} 1` + "\n"
 	if !strings.Contains(scrape(t, registry), want) {
 		t.Errorf("scrape missing %q", want)
 	}

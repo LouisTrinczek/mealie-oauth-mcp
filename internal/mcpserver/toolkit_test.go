@@ -556,8 +556,8 @@ func TestAddSingleTool_ObservesCalls(t *testing.T) {
 	rec := httptest.NewRecorder()
 	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	for _, line := range []string{
-		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="probe"} 1`,
-		`mealie_mcp_tool_call_duration_seconds_count{outcome="error",tool="probe"} 1`,
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="probe"} 1` + "\n",
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="error",tool="probe"} 1` + "\n",
 	} {
 		if !strings.Contains(rec.Body.String(), line) {
 			t.Errorf("metrics missing %q in %s", line, rec.Body.String())
@@ -600,7 +600,7 @@ func TestWhoami_ObservesCall(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
-	if want := `mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="whoami"} 1`; !strings.Contains(rec.Body.String(), want) {
+	if want := `mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="whoami"} 1` + "\n"; !strings.Contains(rec.Body.String(), want) {
 		t.Errorf("metrics missing %q", want)
 	}
 	spans := exporter.GetSpans()

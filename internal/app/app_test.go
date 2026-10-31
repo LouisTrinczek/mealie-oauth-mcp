@@ -814,8 +814,8 @@ func TestServe_MetricsOnSeparateListener(t *testing.T) {
 		t.Fatalf("metrics = %d, want 200", status)
 	}
 	for _, want := range []string{
-		`mealie_mcp_http_request_duration_seconds_count{code="200",route="GET /healthz"} 1`,
-		"mealie_mcp_active_sessions 1",
+		`mealie_mcp_http_request_duration_seconds_count{code="200",route="GET /healthz"} 1` + "\n",
+		"mealie_mcp_active_sessions 1\n",
 		`mealie_mcp_mealie_request_duration_seconds_count{method="GET"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -838,7 +838,7 @@ func TestDeleteExpired_RefreshesActiveSessions(t *testing.T) {
 	seedSession(t, a)
 
 	a.deleteExpired(t.Context())
-	if body := serve(t, a.metrics.Handler(), http.MethodGet, "/metrics").Body.String(); !strings.Contains(body, "mealie_mcp_active_sessions 1") {
+	if body := serve(t, a.metrics.Handler(), http.MethodGet, "/metrics").Body.String(); !strings.Contains(body, "mealie_mcp_active_sessions 1\n") {
 		t.Errorf("scrape missing mealie_mcp_active_sessions 1")
 	}
 }
