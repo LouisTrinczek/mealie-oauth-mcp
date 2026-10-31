@@ -553,14 +553,13 @@ func TestAddSingleTool_ObservesCalls(t *testing.T) {
 	callTool(t, cs, "probe", map[string]any{"kinds": []string{}})
 	callTool(t, cs, "probe", map[string]any{"kinds": []string{}})
 
-	rec := httptest.NewRecorder()
-	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	scraped := scrapeRegistry(t, registry)
 	for _, line := range []string{
 		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="probe"} 1` + "\n",
 		`mealie_mcp_tool_call_duration_seconds_count{outcome="error",tool="probe"} 1` + "\n",
 	} {
-		if !strings.Contains(rec.Body.String(), line) {
-			t.Errorf("metrics missing %q in %s", line, rec.Body.String())
+		if !strings.Contains(scraped, line) {
+			t.Errorf("metrics missing %q in %s", line, scraped)
 		}
 	}
 
@@ -569,15 +568,7 @@ func TestAddSingleTool_ObservesCalls(t *testing.T) {
 		t.Fatalf("spans = %d, want 2", len(spans))
 	}
 	for i, span := range spans {
-		if span.Name != "tool probe" {
-			t.Errorf("span %d name = %q, want %q", i, span.Name, "tool probe")
-		}
-		if len(span.Attributes) != 1 || string(span.Attributes[0].Key) != "mcp.tool.name" || span.Attributes[0].Value.AsString() != "probe" {
-			t.Errorf("span %d attributes = %v, want only mcp.tool.name=probe", i, span.Attributes)
-		}
-		if strings.Contains(span.Status.Description, "SECRET-DETAIL") || len(span.Events) != 0 {
-			t.Errorf("span %d leaks error detail: %+v", i, span)
-		}
+		assertProbeSpan(t, i, span)
 	}
 	if spans[0].Status.Code != codes.Unset {
 		t.Errorf("first span status = %v, want unset", spans[0].Status.Code)
@@ -585,6 +576,26 @@ func TestAddSingleTool_ObservesCalls(t *testing.T) {
 	if spans[1].Status.Code != codes.Error || spans[1].Status.Description != "tool call failed" {
 		t.Errorf("failing span status = %+v, want error %q", spans[1].Status, "tool call failed")
 	}
+}
+
+func assertProbeSpan(t *testing.T, i int, span tracetest.SpanStub) {
+	t.Helper()
+	if span.Name != "tool probe" {
+		t.Errorf("span %d name = %q, want %q", i, span.Name, "tool probe")
+	}
+	if len(span.Attributes) != 1 || string(span.Attributes[0].Key) != "mcp.tool.name" || span.Attributes[0].Value.AsString() != "probe" {
+		t.Errorf("span %d attributes = %v, want only mcp.tool.name=probe", i, span.Attributes)
+	}
+	if strings.Contains(span.Status.Description, "SECRET-DETAIL") || len(span.Events) != 0 {
+		t.Errorf("span %d leaks error detail: %+v", i, span)
+	}
+}
+
+func scrapeRegistry(t *testing.T, registry *metrics.Registry) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	return rec.Body.String()
 }
 
 func TestWhoami_ObservesCall(t *testing.T) {
@@ -598,9 +609,7 @@ func TestWhoami_ObservesCall(t *testing.T) {
 		t.Fatalf("tool error: %s", resultText(t, res))
 	}
 
-	rec := httptest.NewRecorder()
-	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
-	if want := `mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="whoami"} 1` + "\n"; !strings.Contains(rec.Body.String(), want) {
+	if want := `mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="whoami"} 1` + "\n"; !strings.Contains(scrapeRegistry(t, registry), want) {
 		t.Errorf("metrics missing %q", want)
 	}
 	spans := exporter.GetSpans()
