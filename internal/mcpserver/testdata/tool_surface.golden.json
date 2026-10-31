@@ -1,0 +1,833 @@
+[
+  {
+    "name": "account_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "household",
+            "group",
+            "households"
+          ]
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "page": {
+          "type": "integer"
+        },
+        "perPage": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "feedback_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "comments",
+            "ratings",
+            "favorites"
+          ]
+        },
+        "slug": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "feedback_write",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "comment",
+            "update_comment",
+            "delete_comment",
+            "rate",
+            "favorite",
+            "unfavorite"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "rating": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "slug": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "history_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "timeline"
+          ]
+        },
+        "page": {
+          "type": "integer"
+        },
+        "perPage": {
+          "type": "integer"
+        },
+        "slug": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "history_write",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "add",
+            "made_it",
+            "update",
+            "delete"
+          ]
+        },
+        "eventType": {
+          "type": "string",
+          "enum": [
+            "info",
+            "comment"
+          ]
+        },
+        "fields": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "ingredients_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "get",
+            "empty",
+            "parse"
+          ]
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ingredients": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "foods",
+            "units",
+            "labels"
+          ]
+        },
+        "page": {
+          "type": "integer"
+        },
+        "perPage": {
+          "type": "integer"
+        },
+        "search": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "ingredients_write",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "abbreviation": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "delete",
+            "merge"
+          ]
+        },
+        "color": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object"
+        },
+        "fromId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "foods",
+            "units",
+            "labels"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "pluralName": {
+          "type": "string"
+        },
+        "toId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "kind"
+      ]
+    }
+  },
+  {
+    "name": "mealie_api",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "body": {},
+        "full": {
+          "type": "boolean"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "query": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "mealplans_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "today",
+            "rules"
+          ]
+        },
+        "end": {
+          "type": "string"
+        },
+        "page": {
+          "type": "integer"
+        },
+        "perPage": {
+          "type": "integer"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "mealplans_write",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "bulk_create",
+            "random",
+            "update",
+            "delete",
+            "rule_create",
+            "rule_update",
+            "rule_delete"
+          ]
+        },
+        "date": {
+          "type": "string"
+        },
+        "day": {
+          "type": "string"
+        },
+        "entries": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string"
+              },
+              "entryType": {
+                "type": "string",
+                "enum": [
+                  "breakfast",
+                  "lunch",
+                  "dinner",
+                  "side",
+                  "snack",
+                  "drink",
+                  "dessert"
+                ]
+              },
+              "slug": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "entryType": {
+          "type": "string",
+          "enum": [
+            "breakfast",
+            "lunch",
+            "dinner",
+            "side",
+            "snack",
+            "drink",
+            "dessert"
+          ]
+        },
+        "fields": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "queryFilter": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "organizers_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "get",
+            "empty"
+          ]
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "cookbooks",
+            "categories",
+            "tags",
+            "tools"
+          ]
+        },
+        "page": {
+          "type": "integer"
+        },
+        "perPage": {
+          "type": "integer"
+        },
+        "search": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "kind"
+      ]
+    }
+  },
+  {
+    "name": "organizers_write",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "delete",
+            "merge"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object"
+        },
+        "fromId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "cookbooks",
+            "categories",
+            "tags",
+            "tools"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "queryFilter": {
+          "type": "string"
+        },
+        "toId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "kind"
+      ]
+    }
+  },
+  {
+    "name": "recipes_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "search",
+            "get",
+            "suggest"
+          ]
+        },
+        "categories": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "foods": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "orderBy": {
+          "type": "string"
+        },
+        "orderDirection": {
+          "type": "string",
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        },
+        "page": {
+          "type": "integer"
+        },
+        "perPage": {
+          "type": "integer"
+        },
+        "query": {
+          "type": "string"
+        },
+        "requireAll": {
+          "type": "boolean"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "tags": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "tools": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "recipes_write",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "import_url",
+            "update",
+            "duplicate",
+            "delete",
+            "mark_made",
+            "set_image_url",
+            "add_asset_url",
+            "share",
+            "bulk_tag",
+            "bulk_categorize",
+            "bulk_delete"
+          ]
+        },
+        "categories": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object"
+        },
+        "includeTags": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "slugs": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "shopping_read",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "lists",
+            "list"
+          ]
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "page": {
+          "type": "integer"
+        },
+        "perPage": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "shopping_write",
+    "readOnly": false,
+    "destructive": true,
+    "input": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create_list",
+            "update_list",
+            "delete_list",
+            "add_items",
+            "update_items",
+            "delete_items",
+            "add_recipe",
+            "remove_recipe"
+          ]
+        },
+        "fields": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ids": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "items": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "checked": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "display": {
+                "type": "string"
+              },
+              "foodId": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "labelId": {
+                "type": "string"
+              },
+              "note": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "quantity": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "unitId": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "listId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "slug": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "name": "whoami",
+    "readOnly": true,
+    "destructive": false,
+    "input": {
+      "properties": {},
+      "required": []
+    }
+  }
+]

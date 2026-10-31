@@ -192,7 +192,8 @@ and media endpoints. It is an allowlist, so endpoints added in future Mealie
 releases stay blocked until they are added on purpose.
 
 Tool names, action names, and argument meanings are a public interface.
-Breaking changes need a major version or a deprecation period.
+Breaking changes need a major version or a deprecation period; see the
+[tool stability policy](CONTRIBUTING.md#tool-stability-policy).
 
 ## Sessions
 
@@ -412,8 +413,11 @@ make test               # tests with race detector, writes coverage.out
 make cover              # tests plus per-package coverage minimums
 make lint               # golangci-lint, writes golangci-report.xml
 make vuln               # govulncheck
-make fuzz               # run every fuzz target for FUZZTIME (default 30s)
+make fuzz               # run every fuzz target for FUZZTIME (default 10s)
 make test-integration   # Docker-based end-to-end test
+make dev-up             # local Mealie, mock login and server in Docker
+make dev-check          # test the running dev environment
+make dev-down           # stop the dev environment and delete its data
 gofmt -l .              # list unformatted files
 go run ./cmd/mealie-oauth-mcp
 ```
@@ -425,12 +429,21 @@ unformatted Go files:
 make setup
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+[development environment](CONTRIBUTING.md#development-environment), tests,
+and how to [add a tool](CONTRIBUTING.md#adding-a-tool).
+
 ### Project layout
+
+For how the pieces fit together, see the
+[architecture overview](docs/architecture.md) and the
+[decision records](docs/adr/README.md).
 
 ```
 cmd/mealie-oauth-mcp/   main package: config, wiring, startup
 internal/               server packages (not importable by other modules)
 deploy/                 example Compose file
+dev/                    Compose file for the local development environment
 ```
 
 

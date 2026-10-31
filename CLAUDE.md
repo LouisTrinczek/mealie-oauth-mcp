@@ -33,6 +33,8 @@ disagree, say so instead of silently picking one.
 - Vet: `go vet ./...`
 - Format: `gofmt -l -w .`
 - Tidy modules: `go mod tidy`
+- Dev environment: `make dev-up` (Mealie, mock OIDC login and the server in
+  Docker; `make dev-down` stops it)
 - Lint: `make lint` (golangci-lint, pinned as a Go tool)
 - Vulnerabilities: `make vuln` (govulncheck)
 - Coverage gate: `make cover` (per-package minimums in `.coverage-thresholds`)
@@ -50,12 +52,16 @@ rejects commits with unformatted Go files; enable it once per clone with
   `run(ctx)`. No business logic.
 - `internal/`: all other packages. There is no `pkg/`; nothing here is a
   public library.
-  Current packages: `app` (wiring, routes, startup checks), `audit`,
-  `codestyle` (no-comments test), `config`, `httpx` (middleware, rate
-  limiting), `mcpserver`, `mealie` (API client), `metrics` (Prometheus
-  metrics), `oauth`, `obs` (logging), `secret`, `session`, `store` (SQLite),
-  `token`, `tokencrypt`, `tracing` (OpenTelemetry tracing).
+  Current packages: `allowlist` (`mealie_api` path allowlist), `app`
+  (wiring, routes, startup checks), `audit`, `codestyle` (no-comments test),
+  `config`, `httpx` (middleware, rate limiting), `mcpserver`, `mealie` (API
+  client), `metrics` (Prometheus metrics), `oauth`, `obs` (logging),
+  `secret`, `session`, `store` (SQLite), `token`, `tokencrypt`, `tracing`
+  (OpenTelemetry tracing), `view` (compact tool output).
 - `deploy/`: example Compose file for self-hosters.
+- `dev/`: Compose file behind `make dev-up`.
+- `docs/`: `architecture.md` (architecture overview) and `adr/` (decision
+  records). `docs/superpowers/` is local and git-ignored.
 - Create a package when there is code for it, not ahead of time. Name packages
   by what they provide (`oauth`, `mealie`, `store`), never `util` or `common`.
 
