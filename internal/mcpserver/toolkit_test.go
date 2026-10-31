@@ -6,17 +6,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/allowlist"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/tracing"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
 )
 
@@ -97,7 +105,7 @@ func TestInputSchema_Error(t *testing.T) {
 		t.Errorf("inputSchema error = %v, want an inferring error", err)
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
-	err := addActionTool(srv, Deps{}, toolSpec{name: "broken"}, []action[channelInput]{{name: "x"}}, nil)
+	err := addActionTool(srv, Deps{Tracing: noop.NewTracerProvider()}, toolSpec{name: "broken"}, []action[channelInput]{{name: "x"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "inferring") {
 		t.Errorf("addActionTool error = %v, want an inferring error", err)
 	}
@@ -514,5 +522,68 @@ func TestNeedPresent(t *testing.T) {
 	}
 	if err := needPresent("rate", "rating", true); err != nil {
 		t.Errorf("needPresent(true) = %v, want nil", err)
+	}
+}
+
+func TestAddSingleTool_ObservesCalls(t *testing.T) {
+	registry := metrics.New()
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
+	calls := 0
+	err := addSingleTool(srv, toolkit{logger: slog.New(slog.DiscardHandler), metrics: registry, tracer: tracing.Tracer(provider)},
+		&mcp.Tool{Name: "probe", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, nil,
+		func(context.Context, *mcp.CallToolRequest, kindsInput) (*mcp.CallToolResult, any, error) {
+			calls++
+			if calls == 1 {
+				return &mcp.CallToolResult{}, nil, nil
+			}
+			return nil, nil, errors.New("SECRET-DETAIL")
+		})
+	if err != nil {
+		t.Fatalf("addSingleTool: %v", err)
+	}
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := srv.Connect(t.Context(), serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = serverSession.Close() })
+	cs := connect(t, clientTransport)
+
+	callTool(t, cs, "probe", map[string]any{"kinds": []string{}})
+	callTool(t, cs, "probe", map[string]any{"kinds": []string{}})
+
+	rec := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	for _, line := range []string{
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="probe"} 1`,
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="error",tool="probe"} 1`,
+	} {
+		if !strings.Contains(rec.Body.String(), line) {
+			t.Errorf("metrics missing %q in %s", line, rec.Body.String())
+		}
+	}
+
+	spans := exporter.GetSpans()
+	if len(spans) != 2 {
+		t.Fatalf("spans = %d, want 2", len(spans))
+	}
+	for i, span := range spans {
+		if span.Name != "tool probe" {
+			t.Errorf("span %d name = %q, want %q", i, span.Name, "tool probe")
+		}
+		if len(span.Attributes) != 1 || string(span.Attributes[0].Key) != "mcp.tool.name" || span.Attributes[0].Value.AsString() != "probe" {
+			t.Errorf("span %d attributes = %v, want only mcp.tool.name=probe", i, span.Attributes)
+		}
+		if strings.Contains(span.Status.Description, "SECRET-DETAIL") || len(span.Events) != 0 {
+			t.Errorf("span %d leaks error detail: %+v", i, span)
+		}
+	}
+	if spans[0].Status.Code != codes.Unset {
+		t.Errorf("first span status = %v, want unset", spans[0].Status.Code)
+	}
+	if spans[1].Status.Code != codes.Error || spans[1].Status.Description != "tool call failed" {
+		t.Errorf("failing span status = %+v, want error %q", spans[1].Status, "tool call failed")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/obs"
 )
 
@@ -25,14 +26,19 @@ const (
 )
 
 type Logger struct {
-	logger *slog.Logger
+	logger  *slog.Logger
+	metrics *metrics.Registry
 }
 
-func New(logger *slog.Logger) *Logger {
-	return &Logger{logger: logger}
+func New(logger *slog.Logger, m *metrics.Registry) *Logger {
+	if m == nil {
+		m = metrics.New()
+	}
+	return &Logger{logger: logger, metrics: m}
 }
 
 func (l *Logger) Event(ctx context.Context, ev EventType, attrs ...slog.Attr) {
+	l.metrics.CountAuditEvent(string(ev))
 	base := []slog.Attr{
 		slog.String("log_type", "audit"),
 		slog.String("request_id", obs.RequestIDFrom(ctx)),

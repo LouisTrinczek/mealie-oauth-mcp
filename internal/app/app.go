@@ -85,7 +85,7 @@ func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, versio
 		return nil, fmt.Errorf("opening store: %w", err)
 	}
 	a := &App{cfg: cfg, logger: logger, store: st, mealie: client, now: time.Now, shutdownGrace: shutdownGracePeriod}
-	auditLog := audit.New(logger)
+	auditLog := audit.New(logger, nil)
 	sessions := a.sessionManager(keyring, auditLog)
 	tools, err := buildTools(mcpserver.Deps{Tokens: sessions, Mealie: client, Clock: a.now, Version: version, Logger: logger})
 	if err != nil {

@@ -196,7 +196,7 @@ func TestMealieAPI_TokenFailureMakesNoRequest(t *testing.T) {
 
 func TestAddSingleTool_SchemaError(t *testing.T) {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
-	err := addSingleTool[channelInput](srv, nil, &mcp.Tool{Name: "broken"}, nil, nil)
+	err := addSingleTool[channelInput](srv, toolkit{}, &mcp.Tool{Name: "broken"}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "inferring") {
 		t.Errorf("addSingleTool error = %v, want an inferring error", err)
 	}
