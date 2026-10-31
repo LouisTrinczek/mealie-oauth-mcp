@@ -34,4 +34,4 @@ test-integration:
 	$(INTEGRATION_COMPOSE) run --rm --build it; status=$$?; $(INTEGRATION_COMPOSE) down -v; exit $$status
 
 release-dry-run:
-	docker run --rm -v "$(CURDIR)":/src -w /src goreleaser/goreleaser:$(GORELEASER_VERSION) release --snapshot --clean --skip=sign,sbom
+	docker run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src -v "$(CURDIR)":/src -w /src goreleaser/goreleaser:$(GORELEASER_VERSION) release --snapshot --clean --skip=sign,sbom
