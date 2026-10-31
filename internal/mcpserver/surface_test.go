@@ -10,15 +10,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-type surfaceItems struct {
-	Type any   `json:"type,omitempty"`
-	Enum []any `json:"enum,omitempty"`
-}
-
 type surfaceProperty struct {
-	Type  any           `json:"type,omitempty"`
-	Enum  []any         `json:"enum,omitempty"`
-	Items *surfaceItems `json:"items,omitempty"`
+	Type       any                        `json:"type,omitempty"`
+	Enum       []any                      `json:"enum,omitempty"`
+	Items      *surfaceProperty           `json:"items,omitempty"`
+	Properties map[string]surfaceProperty `json:"properties,omitempty"`
+	Required   []string                   `json:"required,omitempty"`
 }
 
 type surfaceInput struct {
@@ -67,7 +64,24 @@ func reduceInputSchema(schema any) (surfaceInput, error) {
 		input.Required = []string{}
 	}
 	slices.Sort(input.Required)
+	sortNestedRequired(input.Properties)
 	return input, nil
+}
+
+func sortNestedRequired(properties map[string]surfaceProperty) {
+	for name, property := range properties {
+		properties[name] = withSortedRequired(property)
+	}
+}
+
+func withSortedRequired(property surfaceProperty) surfaceProperty {
+	slices.Sort(property.Required)
+	sortNestedRequired(property.Properties)
+	if property.Items != nil {
+		items := withSortedRequired(*property.Items)
+		property.Items = &items
+	}
+	return property
 }
 
 func listAllTools(t *testing.T, cs *mcp.ClientSession) []*mcp.Tool {
@@ -115,6 +129,56 @@ func TestToolSurface_IgnoresDescriptions(t *testing.T) {
 		{"different enum value", surfaceFixture("tool text", "property text", "fetch"), false},
 	}
 	base, err := toolSurface(surfaceFixture("tool text", "property text", "get"))
+	if err != nil {
+		t.Fatalf("toolSurface: %v", err)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			other, err := toolSurface(tt.other)
+			if err != nil {
+				t.Fatalf("toolSurface: %v", err)
+			}
+			if equal := string(base) == string(other); equal != tt.wantEqual {
+				t.Errorf("surfaces equal = %v, want %v", equal, tt.wantEqual)
+			}
+		})
+	}
+}
+
+func nestedSurfaceFixture(itemField, itemDescription string, required []any) []*mcp.Tool {
+	return []*mcp.Tool{{
+		Name: "shopping_write",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"items": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type":     "object",
+						"required": required,
+						"properties": map[string]any{
+							itemField: map[string]any{"type": "boolean", "description": itemDescription},
+							"note":    map[string]any{"type": "string"},
+						},
+					},
+				},
+			},
+		},
+	}}
+}
+
+func TestToolSurface_TracksNestedItemFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		other     []*mcp.Tool
+		wantEqual bool
+	}{
+		{"different nested description", nestedSurfaceFixture("checked", "changed item text", []any{"checked", "note"}), true},
+		{"reordered nested required", nestedSurfaceFixture("checked", "item text", []any{"note", "checked"}), true},
+		{"renamed nested field", nestedSurfaceFixture("done", "item text", []any{"done", "note"}), false},
+	}
+	base, err := toolSurface(nestedSurfaceFixture("checked", "item text", []any{"checked", "note"}))
 	if err != nil {
 		t.Fatalf("toolSurface: %v", err)
 	}

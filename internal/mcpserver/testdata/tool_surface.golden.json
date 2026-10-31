@@ -365,7 +365,33 @@
             "array"
           ],
           "items": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string"
+              },
+              "entryType": {
+                "type": "string",
+                "enum": [
+                  "breakfast",
+                  "lunch",
+                  "dinner",
+                  "side",
+                  "snack",
+                  "drink",
+                  "dessert"
+                ]
+              },
+              "slug": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
           }
         },
         "entryType": {
@@ -739,7 +765,42 @@
             "array"
           ],
           "items": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+              "checked": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "display": {
+                "type": "string"
+              },
+              "foodId": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "labelId": {
+                "type": "string"
+              },
+              "note": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "quantity": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "unitId": {
+                "type": "string"
+              }
+            }
           }
         },
         "listId": {
