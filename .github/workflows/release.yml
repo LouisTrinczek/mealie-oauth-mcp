@@ -1,5 +1,5 @@
 # Note: release-please PRs opened with GITHUB_TOKEN do not trigger CI runs.
-# Branch protection (Plan 4) must account for this.
+# The repo admin merges release PRs through the main ruleset bypass.
 name: release
 
 on:

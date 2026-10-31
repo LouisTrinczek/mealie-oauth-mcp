@@ -33,6 +33,8 @@ disagree, say so instead of silently picking one.
 - Vet: `go vet ./...`
 - Format: `gofmt -l -w .`
 - Tidy modules: `go mod tidy`
+- Dev environment: `make dev-up` (Mealie, mock OIDC login and the server in
+  Docker; `make dev-down` stops it)
 - Lint: `make lint` (golangci-lint, pinned as a Go tool)
 - Vulnerabilities: `make vuln` (govulncheck)
 - Coverage gate: `make cover` (per-package minimums in `.coverage-thresholds`)
@@ -56,6 +58,8 @@ rejects commits with unformatted Go files; enable it once per clone with
   metrics), `oauth`, `obs` (logging), `secret`, `session`, `store` (SQLite),
   `token`, `tokencrypt`, `tracing` (OpenTelemetry tracing).
 - `deploy/`: example Compose file for self-hosters.
+- `dev/`: Compose file behind `make dev-up`.
+- `docs/`: design documents and plans.
 - Create a package when there is code for it, not ahead of time. Name packages
   by what they provide (`oauth`, `mealie`, `store`), never `util` or `common`.
 
