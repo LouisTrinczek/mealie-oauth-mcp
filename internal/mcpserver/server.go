@@ -54,11 +54,12 @@ type Deps struct {
 func New(d Deps) (*mcp.Server, error) {
 	srv := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: d.Version}, nil)
 	closedWorld := false
-	mcp.AddTool(srv, &mcp.Tool{
+	whoamiTool := &mcp.Tool{
 		Name:        "whoami",
 		Description: "Show which Mealie user this connection acts as, including household and group.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
-	}, whoami{deps: d}.handle)
+	}
+	mcp.AddTool(srv, whoamiTool, observed(d.toolkit(), whoamiTool.Name, whoami{deps: d}.handle))
 	return srv, errors.Join(
 		addAccountRead(srv, d),
 		addRecipesRead(srv, d),

@@ -232,22 +232,31 @@ func addSingleTool[In any](srv *mcp.Server, kit toolkit, tool *mcp.Tool, enums m
 	}
 	tool.InputSchema = schema
 	read := tool.Annotations.ReadOnlyHint
-	mcp.AddTool(srv, tool, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
-		ctx, span := kit.tracer.Start(ctx, "tool "+tool.Name, trace.WithAttributes(attribute.String("mcp.tool.name", tool.Name)))
-		defer span.End()
-		started := time.Now()
+	mcp.AddTool(srv, tool, observed(kit, tool.Name, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		result, out, err := handler(ctx, req, in)
 		if err != nil {
 			if !shownToAgent(err) {
 				kit.logger.WarnContext(ctx, "unreadable Mealie response", "tool", tool.Name, "read", read, "error", err.Error())
 			}
 			err = agentError(err, read)
+		}
+		return result, out, err
+	}))
+	return nil
+}
+
+func observed[In, Out any](kit toolkit, name string, handler mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		ctx, span := kit.tracer.Start(ctx, "tool "+name, trace.WithAttributes(attribute.String("mcp.tool.name", name)))
+		defer span.End()
+		started := time.Now()
+		result, out, err := handler(ctx, req, in)
+		if err != nil {
 			span.SetStatus(codes.Error, "tool call failed")
 		}
-		kit.metrics.ObserveTool(tool.Name, err != nil, time.Since(started))
+		kit.metrics.ObserveTool(name, err != nil, time.Since(started))
 		return result, out, err
-	})
-	return nil
+	}
 }
 
 func shownToAgent(err error) bool {

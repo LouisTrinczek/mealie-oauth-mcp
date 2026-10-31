@@ -53,6 +53,16 @@ const (
 	userAgentPrefix   = "mealie-oauth-mcp/"
 )
 
+type namedServer struct {
+	name     string
+	http     *http.Server
+	listener net.Listener
+}
+
+func (s namedServer) serve() error {
+	return fmt.Errorf("serving %s: %w", s.name, s.http.Serve(s.listener))
+}
+
 type App struct {
 	cfg           *config.Config
 	logger        *slog.Logger
@@ -279,23 +289,23 @@ func (a *App) serve(ctx context.Context, listener, metricsListener net.Listener)
 
 	requests, endRequests := context.WithCancel(context.WithoutCancel(ctx))
 	defer endRequests()
-	srv := a.httpServer(requests)
-	servers := []*http.Server{srv}
-	served := make(chan error, 2)
-	go func() { served <- srv.Serve(listener) }()
+	servers := []namedServer{{name: "http", http: a.httpServer(requests), listener: listener}}
 	if metricsListener != nil {
-		metricsSrv := a.metricsServer()
-		servers = append(servers, metricsSrv)
-		go func() { served <- metricsSrv.Serve(metricsListener) }()
+		servers = append(servers, namedServer{name: "metrics", http: a.metricsServer(), listener: metricsListener})
+	}
+	served := make(chan error, len(servers))
+	var serving sync.WaitGroup
+	for _, s := range servers {
+		serving.Go(func() { served <- s.serve() })
 	}
 
 	var err error
 	select {
 	case err = <-served:
-		err = fmt.Errorf("serving http: %w", err)
 	case <-ctx.Done():
 	}
 	err = errors.Join(err, a.shutdown(ctx, servers, endRequests))
+	serving.Wait()
 	stop()
 	cleanup.Wait()
 	return err
@@ -325,15 +335,15 @@ func (a *App) newServer(handler http.Handler, writeLimit time.Duration) *http.Se
 	}
 }
 
-func (a *App) shutdown(ctx context.Context, servers []*http.Server, endRequests context.CancelFunc) error {
+func (a *App) shutdown(ctx context.Context, servers []namedServer, endRequests context.CancelFunc) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	graceOver := time.AfterFunc(a.shutdownGrace, endRequests)
 	defer graceOver.Stop()
 	var errs []error
-	for _, srv := range servers {
-		if err := srv.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("shutting down http server: %w", err), srv.Close())
+	for _, s := range servers {
+		if err := s.http.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("shutting down %s server: %w", s.name, err), s.http.Close())
 		}
 	}
 	return errors.Join(errs...)

@@ -586,3 +586,29 @@ func TestAddSingleTool_ObservesCalls(t *testing.T) {
 		t.Errorf("failing span status = %+v, want error %q", spans[1].Status, "tool call failed")
 	}
 }
+
+func TestWhoami_ObservesCall(t *testing.T) {
+	registry := metrics.New()
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	profile := &fakeMealie{user: mealie.User{ID: "user-1", Username: "alice"}}
+	cs := connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile, Metrics: registry, Tracing: provider})
+
+	if res := callWhoami(t, cs); res.IsError {
+		t.Fatalf("tool error: %s", resultText(t, res))
+	}
+
+	rec := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	if want := `mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="whoami"} 1`; !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("metrics missing %q", want)
+	}
+	spans := exporter.GetSpans()
+	if len(spans) != 1 || spans[0].Name != "tool whoami" {
+		t.Fatalf("spans = %v, want one span named tool whoami", spans)
+	}
+	attrs := spans[0].Attributes
+	if len(attrs) != 1 || string(attrs[0].Key) != "mcp.tool.name" || attrs[0].Value.AsString() != "whoami" {
+		t.Errorf("span attributes = %v, want only mcp.tool.name=whoami", attrs)
+	}
+}

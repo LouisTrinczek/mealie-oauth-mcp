@@ -556,9 +556,13 @@ func (f *flow) scrapeMetrics(t *testing.T) {
 	if got.status != http.StatusOK {
 		t.Fatalf("scraping metrics: status %d", got.status)
 	}
-	want := `mealie_mcp_audit_events_total{event="` + string(audit.LoginSucceeded) + `"}`
-	if !strings.Contains(string(got.body), want) {
-		t.Errorf("scrape missing %q", want)
+	for _, want := range []string{
+		`mealie_mcp_audit_events_total{event="` + string(audit.LoginSucceeded) + `"}`,
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="whoami"}`,
+	} {
+		if !strings.Contains(string(got.body), want) {
+			t.Errorf("scrape missing %q", want)
+		}
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,12 +38,13 @@ import (
 )
 
 const (
-	testPublicURL    = "https://mcp.example"
-	testMealieToken  = "mealie-session-token"
-	testSessionID    = "session-1"
-	testClientID     = "client-1"
-	currentAbout     = `{"version":"v3.29.0","enableOidc":true,"production":true}`
-	testMetadataPath = "/.well-known/oauth-protected-resource/mcp"
+	testPublicURL      = "https://mcp.example"
+	testMealieToken    = "mealie-session-token"
+	testSessionID      = "session-1"
+	testClientID       = "client-1"
+	currentAbout       = `{"version":"v3.29.0","enableOidc":true,"production":true}`
+	testMetadataPath   = "/.well-known/oauth-protected-resource/mcp"
+	defaultMetricsAddr = "127.0.0.1:9090"
 )
 
 type syncBuffer struct {
@@ -755,6 +757,11 @@ func TestApp_RunServesUntilCanceled(t *testing.T) {
 }
 
 func TestRun_MetricsDisabled(t *testing.T) {
+	probe, err := new(net.ListenConfig).Listen(t.Context(), "tcp", defaultMetricsAddr)
+	if err != nil {
+		t.Skipf("%s is taken on this machine, so the check cannot tell who holds it: %v", defaultMetricsAddr, err)
+	}
+	_ = probe.Close()
 	fake := startFakeMealie(t, currentAbout, http.StatusOK)
 	logs := &syncBuffer{}
 	a := newTestApp(t, testConfig(t, fake.URL), logs)
@@ -763,10 +770,13 @@ func TestRun_MetricsDisabled(t *testing.T) {
 	if status, _ := fetch(t, running.baseURL+"/healthz"); status != http.StatusOK {
 		t.Errorf("healthz = %d, want 200", status)
 	}
-	running.requireCleanStop(t, 5*time.Second)
-	if strings.Contains(logs.String(), "serving metrics") {
-		t.Errorf("logs = %s, want no metrics listener when METRICS_ADDR is empty", logs)
+	held, err := new(net.ListenConfig).Listen(t.Context(), "tcp", defaultMetricsAddr)
+	if err != nil {
+		t.Errorf("Run holds %s with METRICS_ADDR empty: %v", defaultMetricsAddr, err)
+	} else {
+		_ = held.Close()
 	}
+	running.requireCleanStop(t, 5*time.Second)
 }
 
 func TestRun_MetricsAddrInUse(t *testing.T) {
@@ -1059,18 +1069,27 @@ func TestHandler_SpansNamedByRoute(t *testing.T) {
 		if span.SpanKind == trace.SpanKindServer && span.Name == "GET /callback" {
 			found = true
 		}
-		if strings.Contains(span.Name, "SECRET-CODE") {
-			t.Errorf("span name %q leaks the code", span.Name)
-		}
-		for _, attr := range span.Attributes {
-			if strings.Contains(attr.Value.String(), "SECRET-CODE") {
-				t.Errorf("span %q attribute %s leaks the code", span.Name, attr.Key)
-			}
+		if slices.ContainsFunc(spanTexts(span), func(text string) bool { return strings.Contains(text, "SECRET-CODE") }) {
+			t.Errorf("span %q leaks the code in its name, status, attributes or events", span.Name)
 		}
 	}
 	if !found {
 		t.Errorf("no server span named GET /callback among %d spans", len(spans))
 	}
+}
+
+func spanTexts(span tracetest.SpanStub) []string {
+	texts := []string{span.Name, span.Status.Description}
+	for _, attr := range span.Attributes {
+		texts = append(texts, attr.Value.String())
+	}
+	for _, event := range span.Events {
+		texts = append(texts, event.Name)
+		for _, attr := range event.Attributes {
+			texts = append(texts, attr.Value.String())
+		}
+	}
+	return texts
 }
 
 func TestApp_ServeFailsWhenListenerBreaks(t *testing.T) {
@@ -1091,8 +1110,8 @@ func TestServe_MetricsListenerFailureStopsMainServer(t *testing.T) {
 	main, broken := listenLocal(t), listenLocal(t)
 	_ = broken.Close()
 
-	if err := a.serve(t.Context(), main, broken); err == nil || !strings.Contains(err.Error(), "serving http") {
-		t.Fatalf("serve = %v, want a serving http error", err)
+	if err := a.serve(t.Context(), main, broken); err == nil || !strings.Contains(err.Error(), "serving metrics") {
+		t.Fatalf("serve = %v, want a serving metrics error", err)
 	}
 	requireClosed(t, main.Addr().String())
 }
@@ -1107,27 +1126,36 @@ func (l closeFailingListener) Close() error {
 }
 
 func TestApp_ShutdownReportsListenerCloseFailure(t *testing.T) {
-	a, _ := startApp(t)
-	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen: %v", err)
+	tests := []struct {
+		name          string
+		failMain      bool
+		want, notWant string
+	}{
+		{"http", true, "shutting down http server", "shutting down metrics server"},
+		{"metrics", false, "shutting down metrics server", "shutting down http server"},
 	}
-	ctx, stop := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- a.serve(ctx, closeFailingListener{listener}, nil) }()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+listener.Addr().String()+"/healthz", nil)
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("healthz before shutdown: %v", err)
-	}
-	_ = resp.Body.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, _ := startApp(t)
+			main, metricsListener := listenLocal(t), listenLocal(t)
+			mainURL, metricsURL := "http://"+main.Addr().String()+"/healthz", "http://"+metricsListener.Addr().String()+"/metrics"
+			if tt.failMain {
+				main = closeFailingListener{main}
+			} else {
+				metricsListener = closeFailingListener{metricsListener}
+			}
+			ctx, stop := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- a.serve(ctx, main, metricsListener) }()
+			fetch(t, mainURL)
+			fetch(t, metricsURL)
 
-	stop()
-	if err := <-done; err == nil || !strings.Contains(err.Error(), "shutting down http server") {
-		t.Fatalf("serve = %v, want a shutting down http server error", err)
+			stop()
+			err := <-done
+			if err == nil || !strings.Contains(err.Error(), tt.want) || strings.Contains(err.Error(), tt.notWant) {
+				t.Fatalf("serve = %v, want only a %s error", err, tt.want)
+			}
+		})
 	}
 }
 
