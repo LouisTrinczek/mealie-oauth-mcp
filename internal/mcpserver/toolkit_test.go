@@ -6,17 +6,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/allowlist"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/tracing"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
 )
 
@@ -514,5 +521,103 @@ func TestNeedPresent(t *testing.T) {
 	}
 	if err := needPresent("rate", "rating", true); err != nil {
 		t.Errorf("needPresent(true) = %v, want nil", err)
+	}
+}
+
+func TestAddSingleTool_ObservesCalls(t *testing.T) {
+	registry := metrics.New()
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
+	calls := 0
+	err := addSingleTool(srv, toolkit{logger: slog.New(slog.DiscardHandler), metrics: registry, tracer: tracing.Tracer(provider)},
+		&mcp.Tool{Name: "probe", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}}, nil,
+		func(context.Context, *mcp.CallToolRequest, kindsInput) (*mcp.CallToolResult, any, error) {
+			calls++
+			if calls == 1 {
+				return &mcp.CallToolResult{}, nil, nil
+			}
+			return nil, nil, errors.New("SECRET-DETAIL")
+		})
+	if err != nil {
+		t.Fatalf("addSingleTool: %v", err)
+	}
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := srv.Connect(t.Context(), serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = serverSession.Close() })
+	cs := connect(t, clientTransport)
+
+	callTool(t, cs, "probe", map[string]any{"kinds": []string{}})
+	callTool(t, cs, "probe", map[string]any{"kinds": []string{}})
+
+	scraped := scrapeRegistry(t, registry)
+	for _, line := range []string{
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="probe"} 1` + "\n",
+		`mealie_mcp_tool_call_duration_seconds_count{outcome="error",tool="probe"} 1` + "\n",
+	} {
+		if !strings.Contains(scraped, line) {
+			t.Errorf("metrics missing %q in %s", line, scraped)
+		}
+	}
+
+	spans := exporter.GetSpans()
+	if len(spans) != 2 {
+		t.Fatalf("spans = %d, want 2", len(spans))
+	}
+	for i, span := range spans {
+		assertProbeSpan(t, i, span)
+	}
+	if spans[0].Status.Code != codes.Unset {
+		t.Errorf("first span status = %v, want unset", spans[0].Status.Code)
+	}
+	if spans[1].Status.Code != codes.Error || spans[1].Status.Description != "tool call failed" {
+		t.Errorf("failing span status = %+v, want error %q", spans[1].Status, "tool call failed")
+	}
+}
+
+func assertProbeSpan(t *testing.T, i int, span tracetest.SpanStub) {
+	t.Helper()
+	if span.Name != "tool probe" {
+		t.Errorf("span %d name = %q, want %q", i, span.Name, "tool probe")
+	}
+	if len(span.Attributes) != 1 || string(span.Attributes[0].Key) != "mcp.tool.name" || span.Attributes[0].Value.AsString() != "probe" {
+		t.Errorf("span %d attributes = %v, want only mcp.tool.name=probe", i, span.Attributes)
+	}
+	if strings.Contains(span.Status.Description, "SECRET-DETAIL") || len(span.Events) != 0 {
+		t.Errorf("span %d leaks error detail: %+v", i, span)
+	}
+}
+
+func scrapeRegistry(t *testing.T, registry *metrics.Registry) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	return rec.Body.String()
+}
+
+func TestWhoami_ObservesCall(t *testing.T) {
+	registry := metrics.New()
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	profile := &fakeMealie{user: mealie.User{ID: "user-1", Username: "alice"}}
+	cs := connectOverHTTP(t, Deps{Tokens: &fakeTokens{}, Mealie: profile, Metrics: registry, Tracing: provider})
+
+	if res := callWhoami(t, cs); res.IsError {
+		t.Fatalf("tool error: %s", resultText(t, res))
+	}
+
+	if want := `mealie_mcp_tool_call_duration_seconds_count{outcome="ok",tool="whoami"} 1` + "\n"; !strings.Contains(scrapeRegistry(t, registry), want) {
+		t.Errorf("metrics missing %q", want)
+	}
+	spans := exporter.GetSpans()
+	if len(spans) != 1 || spans[0].Name != "tool whoami" {
+		t.Fatalf("spans = %v, want one span named tool whoami", spans)
+	}
+	attrs := spans[0].Attributes
+	if len(attrs) != 1 || string(attrs[0].Key) != "mcp.tool.name" || attrs[0].Value.AsString() != "whoami" {
+		t.Errorf("span attributes = %v, want only mcp.tool.name=whoami", attrs)
 	}
 }

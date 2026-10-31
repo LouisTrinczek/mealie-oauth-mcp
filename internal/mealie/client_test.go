@@ -5,15 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
 )
 
@@ -527,5 +535,167 @@ func TestCall_RefusesRedirects(t *testing.T) {
 				t.Errorf("source hits = %d, target hits = %d, want 1 and 0", sources.Load(), targets.Load())
 			}
 		})
+	}
+}
+
+func TestOutcome(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"nil", nil, "ok"},
+		{"client error", &APIError{Status: 404}, "client_error"},
+		{"server error", &APIError{Status: 503}, "server_error"},
+		{"unavailable", ErrUnavailable, "unreachable"},
+		{"net error", &net.OpError{Op: "dial"}, "unreachable"},
+		{"deadline", context.DeadlineExceeded, "unreachable"},
+		{"canceled", fmt.Errorf("calling mealie: %w", context.Canceled), "canceled"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := outcome(tt.err); got != tt.want {
+				t.Fatalf("outcome = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRequest_ObservesEachAttempt(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		respond(w, `{}`)
+	}))
+	t.Cleanup(srv.Close)
+	base, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	registry := metrics.New()
+	exporter := tracetest.NewInMemoryExporter()
+	c := New(base, Options{Metrics: registry, Tracing: sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))})
+	c.backoff = []time.Duration{0, 0}
+
+	if _, err := c.Call(t.Context(), secret.New([]byte("SECRET-TOKEN")), http.MethodGet, "/api/recipes", nil, nil); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+
+	body := scrapeMetrics(t, registry)
+	for _, line := range []string{
+		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 1` + "\n",
+		`mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="ok"} 1` + "\n",
+	} {
+		if !strings.Contains(body, line) {
+			t.Errorf("metrics missing %q", line)
+		}
+	}
+
+	spans := exporter.GetSpans()
+	if len(spans) != 2 {
+		t.Fatalf("spans = %d, want 2", len(spans))
+	}
+	for _, span := range spans {
+		if span.Name != "mealie GET" || span.SpanKind != trace.SpanKindClient {
+			t.Errorf("span = %q kind %v", span.Name, span.SpanKind)
+		}
+		assertNoLeaks(t, span)
+	}
+	if spans[0].Status.Code != codes.Error {
+		t.Errorf("first span status = %v, want Error", spans[0].Status.Code)
+	}
+	if spans[1].Status.Code == codes.Error {
+		t.Errorf("second span status = Error, want not Error")
+	}
+	for i, wantOutcome := range []string{"server_error", "ok"} {
+		assertSpanAttributes(t, spans[i], wantOutcome)
+	}
+}
+
+func assertNoLeaks(t *testing.T, span tracetest.SpanStub) {
+	t.Helper()
+	for _, attr := range span.Attributes {
+		value := attr.Value.String()
+		if strings.Contains(value, "SECRET-TOKEN") || strings.Contains(value, "/api/recipes") {
+			t.Errorf("attribute %s leaks %q", attr.Key, value)
+		}
+	}
+}
+
+func assertSpanAttributes(t *testing.T, span tracetest.SpanStub, wantOutcome string) {
+	t.Helper()
+	attrs := map[string]string{}
+	for _, attr := range span.Attributes {
+		attrs[string(attr.Key)] = attr.Value.String()
+	}
+	if attrs["http.request.method"] != "GET" || attrs["mealie.outcome"] != wantOutcome {
+		t.Errorf("span attributes = %v, want GET and %s", attrs, wantOutcome)
+	}
+}
+
+func scrapeMetrics(t *testing.T, registry *metrics.Registry) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	return rec.Body.String()
+}
+
+func TestRequest_ObservesEveryExhaustedAttempt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	base, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	registry := metrics.New()
+	exporter := tracetest.NewInMemoryExporter()
+	c := New(base, Options{Metrics: registry, Tracing: sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))})
+	c.backoff = []time.Duration{0, 0}
+
+	if _, err := c.Call(t.Context(), secret.New([]byte("t")), http.MethodGet, "/api/recipes", nil, nil); err == nil {
+		t.Fatal("expected error")
+	}
+
+	want := `mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="server_error"} 3` + "\n"
+	if !strings.Contains(scrapeMetrics(t, registry), want) {
+		t.Errorf("metrics missing %q", want)
+	}
+	if got := len(exporter.GetSpans()); got != 3 {
+		t.Errorf("spans = %d, want 3", got)
+	}
+}
+
+func TestRequest_ObservesCanceledInFlight(t *testing.T) {
+	started := make(chan struct{})
+	var startOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		startOnce.Do(func() { close(started) })
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	base, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	registry := metrics.New()
+	c := New(base, Options{Metrics: registry})
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		<-started
+		cancel()
+	}()
+
+	if _, err := c.Call(ctx, secret.New([]byte("t")), http.MethodGet, "/api/recipes", nil, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+
+	want := `mealie_mcp_mealie_request_duration_seconds_count{method="GET",outcome="canceled"} 1` + "\n"
+	if !strings.Contains(scrapeMetrics(t, registry), want) {
+		t.Errorf("metrics missing %q", want)
 	}
 }

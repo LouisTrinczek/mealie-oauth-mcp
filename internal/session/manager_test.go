@@ -117,7 +117,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Store:    s,
 		Keyring:  keyring,
 		Mealie:   env.mealie,
-		Audit:    audit.New(logger),
+		Audit:    audit.New(logger, nil),
 		Logger:   logger,
 		Resource: testResource,
 		Now:      env.clock.Now,

@@ -18,10 +18,16 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/allowlist"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/tracing"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/view"
 )
 
@@ -112,6 +118,25 @@ func apiFailure(err *mealie.APIError) toolFailure {
 	}
 }
 
+type toolkit struct {
+	logger  *slog.Logger
+	metrics *metrics.Registry
+	tracer  trace.Tracer
+}
+
+func (d Deps) toolkit() toolkit {
+	if d.Logger == nil {
+		d.Logger = slog.New(slog.DiscardHandler)
+	}
+	if d.Metrics == nil {
+		d.Metrics = metrics.New()
+	}
+	if d.Tracing == nil {
+		d.Tracing = noop.NewTracerProvider()
+	}
+	return toolkit{logger: d.Logger, metrics: d.Metrics, tracer: tracing.Tracer(d.Tracing)}
+}
+
 type action[In any] struct {
 	name string
 	help string
@@ -187,7 +212,7 @@ func addActionTool[In actionInput](srv *mcp.Server, d Deps, spec toolSpec, actio
 	choices := map[string][]any{"action": names}
 	maps.Copy(choices, enums)
 	tool := &mcp.Tool{Name: spec.name, Description: description.String(), Annotations: spec.annotations()}
-	return addSingleTool(srv, d.Logger, tool, choices, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+	return addSingleTool(srv, d.toolkit(), tool, choices, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		s, err := openSession(ctx, d, req)
 		if err != nil {
 			return nil, nil, err
@@ -200,24 +225,38 @@ func addActionTool[In actionInput](srv *mcp.Server, d Deps, spec toolSpec, actio
 	})
 }
 
-func addSingleTool[In any](srv *mcp.Server, logger *slog.Logger, tool *mcp.Tool, enums map[string][]any, handler mcp.ToolHandlerFor[In, any]) error {
+func addSingleTool[In any](srv *mcp.Server, kit toolkit, tool *mcp.Tool, enums map[string][]any, handler mcp.ToolHandlerFor[In, any]) error {
 	schema, err := inputSchema[In](enums)
 	if err != nil {
 		return err
 	}
 	tool.InputSchema = schema
 	read := tool.Annotations.ReadOnlyHint
-	mcp.AddTool(srv, tool, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+	mcp.AddTool(srv, tool, observed(kit, tool.Name, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		result, out, err := handler(ctx, req, in)
-		if err == nil {
-			return result, out, nil
+		if err != nil {
+			if !shownToAgent(err) {
+				kit.logger.WarnContext(ctx, "unreadable Mealie response", "tool", tool.Name, "read", read, "error", err.Error())
+			}
+			err = agentError(err, read)
 		}
-		if !shownToAgent(err) {
-			logger.WarnContext(ctx, "unreadable Mealie response", "tool", tool.Name, "read", read, "error", err.Error())
-		}
-		return nil, nil, agentError(err, read)
-	})
+		return result, out, err
+	}))
 	return nil
+}
+
+func observed[In, Out any](kit toolkit, name string, handler mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		ctx, span := kit.tracer.Start(ctx, "tool "+name, trace.WithAttributes(attribute.String("mcp.tool.name", name)))
+		defer span.End()
+		started := time.Now()
+		result, out, err := handler(ctx, req, in)
+		if err != nil {
+			span.SetStatus(codes.Error, "tool call failed")
+		}
+		kit.metrics.ObserveTool(name, err != nil, time.Since(started))
+		return result, out, err
+	}
 }
 
 func shownToAgent(err error) bool {

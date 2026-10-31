@@ -181,6 +181,7 @@ func TestRepositories_ClosedStoreErrors(t *testing.T) {
 		{"HasConsent", func() error { _, err := s.HasConsent(t.Context(), "u", "c"); return err }},
 		{"GrantConsent", func() error { return s.GrantConsent(t.Context(), "u", "c", baseTime) }},
 		{"DeleteExpired", func() error { _, err := s.DeleteExpired(t.Context(), baseTime); return err }},
+		{"CountActiveSessions", func() error { _, err := s.CountActiveSessions(t.Context(), baseTime); return err }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

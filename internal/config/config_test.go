@@ -28,6 +28,10 @@ func validEnv() map[string]string {
 	}
 }
 
+func ptr(value string) *string {
+	return &value
+}
+
 func loadFrom(env map[string]string, files map[string][]byte) (*Config, error) {
 	getenv := func(name string) (string, bool) {
 		value, ok := env[name]
@@ -319,5 +323,117 @@ func TestLoad_TrailingSlashNormalized(t *testing.T) {
 	}
 	if cfg.ResourceURL() != "https://mcp.example/mcp" || cfg.CallbackURL() != "https://mcp.example/callback" {
 		t.Errorf("derived URLs = %q %q", cfg.ResourceURL(), cfg.CallbackURL())
+	}
+}
+
+func TestLoad_MetricsAddr(t *testing.T) {
+	tests := []struct {
+		name  string
+		unset bool
+		value string
+		want  string
+	}{
+		{name: "unset uses default", unset: true, want: "127.0.0.1:9090"},
+		{name: "empty disables", value: "", want: ""},
+		{name: "port only host", value: ":9090", want: ":9090"},
+		{name: "host and port", value: "0.0.0.0:2112", want: "0.0.0.0:2112"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := validEnv()
+			if !tt.unset {
+				env["METRICS_ADDR"] = tt.value
+			}
+			cfg, err := loadFrom(env, nil)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.MetricsAddr != tt.want {
+				t.Errorf("MetricsAddr = %q, want %q", cfg.MetricsAddr, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_TracingEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint *string
+		want     bool
+	}{
+		{name: "unset", want: false},
+		{name: "empty", endpoint: ptr(""), want: false},
+		{name: "http endpoint", endpoint: ptr("http://otel:4318"), want: true},
+		{name: "https endpoint", endpoint: ptr("https://otel.example:4318/v1/traces"), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := validEnv()
+			if tt.endpoint != nil {
+				env["OTEL_EXPORTER_OTLP_ENDPOINT"] = *tt.endpoint
+			}
+			cfg, err := loadFrom(env, nil)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.TracingEnabled != tt.want {
+				t.Errorf("TracingEnabled = %v, want %v", cfg.TracingEnabled, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoad_ObservabilityErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		variable  string
+		value     string
+		wantError string
+		secret    string
+	}{
+		{name: "metrics addr without host or colon", variable: "METRICS_ADDR", value: "9090", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
+		{name: "metrics addr without port", variable: "METRICS_ADDR", value: "127.0.0.1:", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
+		{name: "metrics addr non-numeric port", variable: "METRICS_ADDR", value: "127.0.0.1:abc", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
+		{name: "metrics addr port out of range", variable: "METRICS_ADDR", value: "127.0.0.1:99999", wantError: "METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics"},
+		{name: "otlp endpoint without scheme", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "otel:4318", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL"},
+		{name: "otlp endpoint wrong scheme", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "ftp://user:" + urlPassword + "@otel", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL", secret: urlPassword},
+		{name: "otlp endpoint unparsable", variable: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://user:" + urlPassword + "@otel:bad", wantError: "OTEL_EXPORTER_OTLP_ENDPOINT must be an absolute http or https URL", secret: urlPassword},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := loadFrom(withEnv(map[string]string{tt.variable: tt.value}), nil)
+			if err == nil {
+				t.Fatalf("Load() = %+v, want error", cfg)
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Errorf("error %q does not contain %q", err, tt.wantError)
+			}
+			if tt.secret != "" && strings.Contains(err.Error(), tt.secret) {
+				t.Errorf("error %q leaks %q", err, tt.secret)
+			}
+		})
+	}
+}
+
+func TestDataDir(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"unset", nil, "/data"},
+		{"empty", map[string]string{"DATA_DIR": ""}, "/data"},
+		{"set", map[string]string{"DATA_DIR": "/srv"}, "/srv"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getenv := func(name string) (string, bool) {
+				value, ok := tt.env[name]
+				return value, ok
+			}
+			if got := DataDir(getenv); got != tt.want {
+				t.Errorf("DataDir = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

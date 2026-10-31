@@ -217,7 +217,7 @@ func newTestServer(t *testing.T, configure ...func(*Config)) *testEnv {
 		Keyring: env.keyring,
 		Mealie:  env.mealie,
 		CIMD:    env.cimd,
-		Audit:   audit.New(logger),
+		Audit:   audit.New(logger, nil),
 		Logger:  logger,
 		Now:     env.clock.Now,
 	})

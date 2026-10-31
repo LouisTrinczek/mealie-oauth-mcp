@@ -1,6 +1,7 @@
 services:
   mealie-oauth-mcp:
-    image: ghcr.io/example/mealie-oauth-mcp:latest
+    # Pin a version tag (for example :0.1.0) instead of latest in production.
+    image: ghcr.io/louistrinczek/mealie-oauth-mcp:latest
     read_only: true
     restart: unless-stopped
     env_file: ../.env

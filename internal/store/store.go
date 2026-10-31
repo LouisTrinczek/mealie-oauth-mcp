@@ -18,7 +18,8 @@ import (
 const (
 	databaseFile = "mealie-mcp.db"
 	lockFileName = ".lock"
-	dsnPragmas   = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
+	busyTimeout  = "_pragma=busy_timeout(5000)"
+	dsnPragmas   = "_pragma=journal_mode(WAL)&" + busyTimeout + "&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
 )
 
 var (
@@ -37,11 +38,19 @@ type Store struct {
 }
 
 func Open(ctx context.Context, dataDir string, logger *slog.Logger) (*Store, error) {
+	return open(ctx, sql.Open, dataDir, logger)
+}
+
+func open(ctx context.Context, openDB func(driver, dsn string) (*sql.DB, error), dataDir string, logger *slog.Logger) (*Store, error) {
 	lock, err := lockFile(dataDir)
 	if err != nil {
 		return nil, err
 	}
-	db, _ := sql.Open("sqlite", "file:"+filepath.Join(dataDir, databaseFile)+dsnPragmas)
+	db, err := openDB("sqlite", fileDSN(filepath.Join(dataDir, databaseFile), dsnPragmas))
+	if err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
 	db.SetMaxOpenConns(1)
 	if err := migrate(ctx, db, migrationFiles, logger); err != nil {
 		_ = db.Close()

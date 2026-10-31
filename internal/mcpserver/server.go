@@ -10,8 +10,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
 )
 
@@ -45,19 +47,19 @@ type Deps struct {
 	Clock   func() time.Time
 	Version string
 	Logger  *slog.Logger
+	Metrics *metrics.Registry
+	Tracing trace.TracerProvider
 }
 
 func New(d Deps) (*mcp.Server, error) {
-	if d.Logger == nil {
-		d.Logger = slog.New(slog.DiscardHandler)
-	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: d.Version}, nil)
 	closedWorld := false
-	mcp.AddTool(srv, &mcp.Tool{
+	whoamiTool := &mcp.Tool{
 		Name:        "whoami",
 		Description: "Show which Mealie user this connection acts as, including household and group.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld},
-	}, whoami{deps: d}.handle)
+	}
+	mcp.AddTool(srv, whoamiTool, observed(d.toolkit(), whoamiTool.Name, whoami{deps: d}.handle))
 	return srv, errors.Join(
 		addAccountRead(srv, d),
 		addRecipesRead(srv, d),

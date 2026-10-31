@@ -85,3 +85,14 @@ func (s *Store) RevokeSession(ctx context.Context, id string, now time.Time) err
 		return nil
 	})
 }
+
+func (s *Store) CountActiveSessions(ctx context.Context, now time.Time) (int64, error) {
+	var count int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE revoked_at IS NULL AND expires_at > ? AND mealie_token_expires_at > ?`,
+		unixSeconds(now), unixSeconds(now)).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting active sessions: %w", err)
+	}
+	return count, nil
+}

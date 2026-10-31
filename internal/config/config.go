@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -24,6 +25,7 @@ const (
 	defaultAccessTokenTTL = time.Hour
 	defaultLogLevel       = "info"
 	defaultLogFormat      = "json"
+	defaultMetricsAddr    = "127.0.0.1:9090"
 
 	maxSessionMaxAge  = 2160 * time.Hour
 	minAccessTokenTTL = 5 * time.Minute
@@ -49,6 +51,8 @@ type Config struct {
 	LogFormat         string
 	TrustedProxies    []netip.Prefix
 	InsecureAllowHTTP bool
+	MetricsAddr       string
+	TracingEnabled    bool
 }
 
 func (c *Config) ResourceURL() string {
@@ -71,10 +75,14 @@ func (e environment) lookup(name, fallback string) string {
 	return fallback
 }
 
+func DataDir(getenv func(string) (string, bool)) string {
+	return environment{getenv: getenv}.lookup("DATA_DIR", defaultDataDir)
+}
+
 func Load(getenv func(string) (string, bool), readFile func(string) ([]byte, error)) (*Config, error) {
 	env := environment{getenv: getenv, readFile: readFile}
 	cfg := &Config{
-		DataDir:    env.lookup("DATA_DIR", defaultDataDir),
+		DataDir:    DataDir(getenv),
 		ListenAddr: env.lookup("LISTEN_ADDR", defaultListenAddr),
 	}
 	var errs []error
@@ -102,6 +110,10 @@ func Load(getenv func(string) (string, bool), readFile func(string) ([]byte, err
 	cfg.LogFormat, err = env.logFormat()
 	collect(err)
 	cfg.TrustedProxies, err = env.trustedProxies()
+	collect(err)
+	cfg.MetricsAddr, err = env.metricsAddr()
+	collect(err)
+	cfg.TracingEnabled, err = env.tracingEnabled()
 	collect(err)
 
 	if err := errors.Join(errs...); err != nil {
@@ -199,6 +211,35 @@ func (e environment) trustedProxies() ([]netip.Prefix, error) {
 		prefixes = append(prefixes, prefix)
 	}
 	return prefixes, nil
+}
+
+func (e environment) metricsAddr() (string, error) {
+	addr, ok := e.getenv("METRICS_ADDR")
+	if !ok {
+		return defaultMetricsAddr, nil
+	}
+	if addr == "" {
+		return "", nil
+	}
+	_, port, err := net.SplitHostPort(addr)
+	number, convErr := strconv.Atoi(port)
+	if err != nil || convErr != nil || number < 1 || number > 65535 {
+		return "", errors.New("METRICS_ADDR must be host:port (for example 127.0.0.1:9090), or empty to disable metrics")
+	}
+	return addr, nil
+}
+
+func (e environment) tracingEnabled() (bool, error) {
+	const name = "OTEL_EXPORTER_OTLP_ENDPOINT"
+	raw := e.lookup(name, "")
+	if raw == "" {
+		return false, nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return false, fmt.Errorf("%s must be an absolute http or https URL", name)
+	}
+	return true, nil
 }
 
 func (e environment) encryptionKeysValue() (string, error) {

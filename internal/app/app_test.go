@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,10 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/config"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mcpserver"
@@ -30,15 +35,17 @@ import (
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/store"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/token"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/tokencrypt"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/tracing"
 )
 
 const (
-	testPublicURL    = "https://mcp.example"
-	testMealieToken  = "mealie-session-token"
-	testSessionID    = "session-1"
-	testClientID     = "client-1"
-	currentAbout     = `{"version":"v3.29.0","enableOidc":true,"production":true}`
-	testMetadataPath = "/.well-known/oauth-protected-resource/mcp"
+	testPublicURL      = "https://mcp.example"
+	testMealieToken    = "mealie-session-token"
+	testSessionID      = "session-1"
+	testClientID       = "client-1"
+	currentAbout       = `{"version":"v3.29.0","enableOidc":true,"production":true}`
+	testMetadataPath   = "/.well-known/oauth-protected-resource/mcp"
+	defaultMetricsAddr = "127.0.0.1:9090"
 )
 
 type syncBuffer struct {
@@ -709,6 +716,11 @@ func TestApp_DeleteExpiredLogsCount(t *testing.T) {
 
 func listenAddr(t *testing.T, logs *syncBuffer) string {
 	t.Helper()
+	return loggedAddr(t, logs, "listening")
+}
+
+func loggedAddr(t *testing.T, logs *syncBuffer, msg string) string {
+	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, line := range strings.Split(logs.String(), "\n") {
@@ -716,35 +728,178 @@ func listenAddr(t *testing.T, logs *syncBuffer) string {
 				Msg  string `json:"msg"`
 				Addr string `json:"addr"`
 			}
-			if json.Unmarshal([]byte(line), &entry) == nil && entry.Msg == "listening" {
+			if json.Unmarshal([]byte(line), &entry) == nil && entry.Msg == msg {
 				return entry.Addr
 			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("server never logged its listen address")
+	t.Fatalf("server never logged %q with an address", msg)
 	return ""
 }
 
 func TestApp_RunServesUntilCanceled(t *testing.T) {
 	fake := startFakeMealie(t, currentAbout, http.StatusOK)
 	logs := &syncBuffer{}
+	cfg := testConfig(t, fake.URL)
+	cfg.MetricsAddr = "127.0.0.1:0"
+	a := newTestApp(t, cfg, logs)
+	running := runApp(t, a, logs)
+	metricsAddr := loggedAddr(t, logs, "serving metrics")
+
+	if status, _ := fetch(t, running.baseURL+"/healthz"); status != http.StatusOK {
+		t.Errorf("healthz = %d, want 200", status)
+	}
+	if status, _ := fetch(t, "http://"+metricsAddr+"/metrics"); status != http.StatusOK {
+		t.Errorf("metrics = %d, want 200", status)
+	}
+	running.requireCleanStop(t, 5*time.Second)
+	requireClosed(t, strings.TrimPrefix(running.baseURL, "http://"), metricsAddr)
+}
+
+func TestRun_MetricsDisabled(t *testing.T) {
+	probe, err := new(net.ListenConfig).Listen(t.Context(), "tcp", defaultMetricsAddr)
+	if err != nil {
+		t.Skipf("%s is taken on this machine, so the check cannot tell who holds it: %v", defaultMetricsAddr, err)
+	}
+	_ = probe.Close()
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	logs := &syncBuffer{}
 	a := newTestApp(t, testConfig(t, fake.URL), logs)
 	running := runApp(t, a, logs)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, running.baseURL+"/healthz", nil)
+	if status, _ := fetch(t, running.baseURL+"/healthz"); status != http.StatusOK {
+		t.Errorf("healthz = %d, want 200", status)
+	}
+	held, err := new(net.ListenConfig).Listen(t.Context(), "tcp", defaultMetricsAddr)
+	if err != nil {
+		t.Errorf("Run holds %s with METRICS_ADDR empty: %v", defaultMetricsAddr, err)
+	} else {
+		_ = held.Close()
+	}
+	running.requireCleanStop(t, 5*time.Second)
+}
+
+func TestRun_MetricsAddrInUse(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	cfg.MetricsAddr = listenLocal(t).Addr().String()
+	cfg.ListenAddr = freeAddr(t)
+	a := newTestApp(t, cfg, io.Discard)
+
+	if err := a.Run(t.Context()); err == nil || !strings.Contains(err.Error(), "METRICS_ADDR") {
+		t.Fatalf("Run = %v, want an error naming METRICS_ADDR", err)
+	}
+	again, err := new(net.ListenConfig).Listen(t.Context(), "tcp", cfg.ListenAddr)
+	if err != nil {
+		t.Fatalf("main listener was not released: %v", err)
+	}
+	_ = again.Close()
+}
+
+func TestServe_MetricsOnSeparateListener(t *testing.T) {
+	a, _ := startApp(t)
+	seedSession(t, a)
+	main, metricsListener := listenLocal(t), listenLocal(t)
+	ctx, stop := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- a.serve(ctx, main, metricsListener) }()
+	mainURL, metricsURL := "http://"+main.Addr().String(), "http://"+metricsListener.Addr().String()
+
+	if status, _ := fetch(t, mainURL+"/healthz"); status != http.StatusOK {
+		t.Fatalf("healthz = %d, want 200", status)
+	}
+	status, body := fetch(t, metricsURL+"/metrics")
+	if status != http.StatusOK {
+		t.Fatalf("metrics = %d, want 200", status)
+	}
+	for _, want := range []string{
+		`mealie_mcp_http_request_duration_seconds_count{code="200",route="GET /healthz"} 1` + "\n",
+		"mealie_mcp_active_sessions 1\n",
+		`mealie_mcp_mealie_request_duration_seconds_count{method="GET"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q", want)
+		}
+	}
+	if status, _ := fetch(t, mainURL+"/metrics"); status != http.StatusNotFound {
+		t.Errorf("metrics on the main listener = %d, want 404", status)
+	}
+
+	stop()
+	if err := <-done; err != nil {
+		t.Fatalf("serve = %v, want nil after cancel", err)
+	}
+	requireClosed(t, main.Addr().String(), metricsListener.Addr().String())
+}
+
+func TestDeleteExpired_RefreshesActiveSessions(t *testing.T) {
+	a, _ := startApp(t)
+	seedSession(t, a)
+
+	a.deleteExpired(t.Context())
+	if body := serve(t, a.metrics.Handler(), http.MethodGet, "/metrics").Body.String(); !strings.Contains(body, "mealie_mcp_active_sessions 1\n") {
+		t.Errorf("scrape missing mealie_mcp_active_sessions 1")
+	}
+}
+
+func TestApp_ActiveSessionsCountFailureIsLogged(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	logs := &syncBuffer{}
+	a := newTestApp(t, testConfig(t, fake.URL), logs)
+	_ = a.store.Close()
+
+	a.refreshActiveSessions(t.Context())
+	if !strings.Contains(logs.String(), `"level":"ERROR","msg":"counting active sessions failed"`) {
+		t.Errorf("logs = %s, want the count failure logged at error level", logs)
+	}
+}
+
+func fetch(t *testing.T, target string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("healthz over the network: %v", err)
+		t.Fatalf("GET %s: %v", target, err)
 	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("healthz = %d, want 200", resp.StatusCode)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading %s: %v", target, err)
 	}
-	running.requireCleanStop(t, 5*time.Second)
+	return resp.StatusCode, string(body)
+}
+
+func listenLocal(t *testing.T) net.Listener {
+	t.Helper()
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	return listener
+}
+
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	listener := listenLocal(t)
+	addr := listener.Addr().String()
+	_ = listener.Close()
+	return addr
+}
+
+func requireClosed(t *testing.T, addrs ...string) {
+	t.Helper()
+	for _, addr := range addrs {
+		conn, err := new(net.Dialer).DialContext(t.Context(), "tcp", addr)
+		if err == nil {
+			_ = conn.Close()
+			t.Errorf("%s still accepts connections after shutdown", addr)
+		}
+	}
 }
 
 func TestApp_RunFailsOnInvalidListenAddr(t *testing.T) {
@@ -796,13 +951,18 @@ func TestApp_NewFailsWhenToolsDoNotBuild(t *testing.T) {
 	cfg := testConfig(t, fake.URL)
 	failing := func(mcpserver.Deps) (*mcp.Server, error) { return nil, errors.New("bad schema") }
 
-	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", failing)
+	cfg.TracingEnabled = true
+	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter(), shutdownErr: errors.New("collector gone")}
+
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", failing, exportTo(exporter))
 	if err == nil {
 		_ = a.Close()
 		t.Fatal("newApp succeeded with a failing tools builder")
 	}
-	if !strings.Contains(err.Error(), "building MCP tools: bad schema") {
-		t.Errorf("error = %q, want the tools build failure", err)
+	for _, want := range []string{"building MCP tools: bad schema", "flushing traces: collector gone"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err, want)
+		}
 	}
 	reopened, err := store.Open(t.Context(), cfg.DataDir, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -815,20 +975,122 @@ func TestApp_ToolsGetTheAppLogger(t *testing.T) {
 	fake := startFakeMealie(t, currentAbout, http.StatusOK)
 	cfg := testConfig(t, fake.URL)
 	logger := slog.New(slog.DiscardHandler)
-	var got *slog.Logger
+	var got mcpserver.Deps
 	capture := func(d mcpserver.Deps) (*mcp.Server, error) {
-		got = d.Logger
+		got = d
 		return mcpserver.New(d)
 	}
 
-	a, err := newApp(t.Context(), cfg, logger, "test", capture)
+	a, err := newApp(t.Context(), cfg, logger, "test", capture, tracing.OTLP)
 	if err != nil {
 		t.Fatalf("newApp: %v", err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
-	if got != logger {
-		t.Errorf("tools logger = %p, want the app logger %p", got, logger)
+	if got.Logger != logger {
+		t.Errorf("tools logger = %p, want the app logger %p", got.Logger, logger)
 	}
+	if got.Metrics != a.metrics || got.Tracing != a.tracing {
+		t.Error("tools did not get the app's metrics registry and tracer provider")
+	}
+}
+
+type retainingExporter struct {
+	*tracetest.InMemoryExporter
+	shutdownErr error
+}
+
+func (e retainingExporter) Shutdown(context.Context) error { return e.shutdownErr }
+
+func exportTo(exporter sdktrace.SpanExporter) tracing.Exporter {
+	return func(context.Context) (sdktrace.SpanExporter, error) { return exporter, nil }
+}
+
+func TestNewApp_TracingSetupFailure(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	cfg.TracingEnabled = true
+	failing := func(context.Context) (sdktrace.SpanExporter, error) { return nil, errors.New("no collector") }
+
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, failing)
+	if err == nil {
+		_ = a.Close()
+		t.Fatal("newApp succeeded with a failing exporter")
+	}
+	if !strings.Contains(err.Error(), "starting tracing") {
+		t.Errorf("error = %q, want it to contain starting tracing", err)
+	}
+	if agents := fake.seenUserAgents(); len(agents) != 0 {
+		t.Errorf("Mealie was called %d times before tracing started", len(agents))
+	}
+	reopened, err := store.Open(t.Context(), cfg.DataDir, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("store stayed open after the failure: %v", err)
+	}
+	_ = reopened.Close()
+}
+
+func TestApp_CloseReportsTracingFlushFailure(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	cfg.TracingEnabled = true
+	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter(), shutdownErr: errors.New("collector gone")}
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, exportTo(exporter))
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+
+	if err := a.Close(); err == nil || !strings.Contains(err.Error(), "flushing traces: collector gone") {
+		t.Errorf("Close = %v, want the flush failure", err)
+	}
+	reopened, err := store.Open(t.Context(), cfg.DataDir, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("store stayed open after the flush failure: %v", err)
+	}
+	_ = reopened.Close()
+}
+
+func TestHandler_SpansNamedByRoute(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	cfg.TracingEnabled = true
+	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter()}
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, exportTo(exporter))
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+
+	serve(t, a.Handler(), http.MethodGet, "/callback?code=SECRET-CODE")
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	spans := exporter.GetSpans()
+	found := false
+	for _, span := range spans {
+		if span.SpanKind == trace.SpanKindServer && span.Name == "GET /callback" {
+			found = true
+		}
+		if slices.ContainsFunc(spanTexts(span), func(text string) bool { return strings.Contains(text, "SECRET-CODE") }) {
+			t.Errorf("span %q leaks the code in its name, status, attributes or events", span.Name)
+		}
+	}
+	if !found {
+		t.Errorf("no server span named GET /callback among %d spans", len(spans))
+	}
+}
+
+func spanTexts(span tracetest.SpanStub) []string {
+	texts := []string{span.Name, span.Status.Description}
+	for _, attr := range span.Attributes {
+		texts = append(texts, attr.Value.String())
+	}
+	for _, event := range span.Events {
+		texts = append(texts, event.Name)
+		for _, attr := range event.Attributes {
+			texts = append(texts, attr.Value.String())
+		}
+	}
+	return texts
 }
 
 func TestApp_ServeFailsWhenListenerBreaks(t *testing.T) {
@@ -839,9 +1101,20 @@ func TestApp_ServeFailsWhenListenerBreaks(t *testing.T) {
 	}
 	_ = listener.Close()
 
-	if err := a.serve(t.Context(), listener); err == nil || !strings.Contains(err.Error(), "serving http") {
+	if err := a.serve(t.Context(), listener, nil); err == nil || !strings.Contains(err.Error(), "serving http") {
 		t.Fatalf("serve = %v, want a serving http error", err)
 	}
+}
+
+func TestServe_MetricsListenerFailureStopsMainServer(t *testing.T) {
+	a, _ := startApp(t)
+	main, broken := listenLocal(t), listenLocal(t)
+	_ = broken.Close()
+
+	if err := a.serve(t.Context(), main, broken); err == nil || !strings.Contains(err.Error(), "serving metrics") {
+		t.Fatalf("serve = %v, want a serving metrics error", err)
+	}
+	requireClosed(t, main.Addr().String())
 }
 
 type closeFailingListener struct {
@@ -854,27 +1127,36 @@ func (l closeFailingListener) Close() error {
 }
 
 func TestApp_ShutdownReportsListenerCloseFailure(t *testing.T) {
-	a, _ := startApp(t)
-	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen: %v", err)
+	tests := []struct {
+		name          string
+		failMain      bool
+		want, notWant string
+	}{
+		{"http", true, "shutting down http server", "shutting down metrics server"},
+		{"metrics", false, "shutting down metrics server", "shutting down http server"},
 	}
-	ctx, stop := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- a.serve(ctx, closeFailingListener{listener}) }()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+listener.Addr().String()+"/healthz", nil)
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("healthz before shutdown: %v", err)
-	}
-	_ = resp.Body.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, _ := startApp(t)
+			main, metricsListener := listenLocal(t), listenLocal(t)
+			mainURL, metricsURL := "http://"+main.Addr().String()+"/healthz", "http://"+metricsListener.Addr().String()+"/metrics"
+			if tt.failMain {
+				main = closeFailingListener{main}
+			} else {
+				metricsListener = closeFailingListener{metricsListener}
+			}
+			ctx, stop := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			go func() { done <- a.serve(ctx, main, metricsListener) }()
+			fetch(t, mainURL)
+			fetch(t, metricsURL)
 
-	stop()
-	if err := <-done; err == nil || !strings.Contains(err.Error(), "shutting down http server") {
-		t.Fatalf("serve = %v, want a shutting down http server error", err)
+			stop()
+			err := <-done
+			if err == nil || !strings.Contains(err.Error(), tt.want) || strings.Contains(err.Error(), tt.notWant) {
+				t.Fatalf("serve = %v, want only a %s error", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -909,5 +1191,38 @@ func TestApp_DeleteExpiredLogsFailure(t *testing.T) {
 	a.deleteExpired(t.Context())
 	if !strings.Contains(logs.String(), "deleting expired rows failed") {
 		t.Errorf("logs = %s, want the cleanup failure logged", logs)
+	}
+}
+
+func TestWithMiddleware_PanicIsMeasuredAndTraced(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	cfg.TracingEnabled = true
+	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter()}
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, exportTo(exporter))
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /boom", func(http.ResponseWriter, *http.Request) { panic("boom") })
+
+	rec := serve(t, a.withMiddleware(mux), http.MethodGet, "/boom")
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	scrape := serve(t, a.metrics.Handler(), http.MethodGet, "/metrics").Body.String()
+	if want := `mealie_mcp_http_request_duration_seconds_count{code="500",route="GET /boom"} 1` + "\n"; !strings.Contains(scrape, want) {
+		t.Errorf("scrape missing %q", want)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	spans := exporter.GetSpans()
+	found := slices.ContainsFunc(spans, func(span tracetest.SpanStub) bool {
+		return span.SpanKind == trace.SpanKindServer && span.Name == "GET /boom" && span.Status.Code == codes.Error
+	})
+	if !found {
+		t.Errorf("no errored server span named GET /boom among %d spans", len(spans))
 	}
 }

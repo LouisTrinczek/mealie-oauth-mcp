@@ -168,3 +168,27 @@ func TestRevokeSession_WriteFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestCountActiveSessions(t *testing.T) {
+	s := newTestStore(t)
+	now := baseTime.Add(time.Hour)
+	seedSession(t, s, testSession("active"), "code-1")
+	expired := testSession("expired")
+	expired.ExpiresAt = now
+	seedSession(t, s, expired, "code-2")
+	seedSession(t, s, testSession("revoked"), "code-3")
+	idle := testSession("idle")
+	idle.MealieTokenExpiresAt = now
+	seedSession(t, s, idle, "code-4")
+	if err := s.RevokeSession(t.Context(), "revoked", baseTime); err != nil {
+		t.Fatalf("RevokeSession: %v", err)
+	}
+
+	count, err := s.CountActiveSessions(t.Context(), now)
+	if err != nil {
+		t.Fatalf("CountActiveSessions: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("CountActiveSessions = %d, want 1", count)
+	}
+}

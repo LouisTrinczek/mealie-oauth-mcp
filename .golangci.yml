@@ -111,6 +111,8 @@ linters:
             - "**/internal/store/**"
             - "**/internal/obs/**"
             - "**/internal/httpx/**"
+            - "**/internal/metrics/**"
+            - "**/internal/tracing/**"
           allow:
             - github.com/louistrinczek/mealie-oauth-mcp/internal/secret
             - github.com/louistrinczek/mealie-oauth-mcp/internal/obs

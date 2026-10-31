@@ -6,14 +6,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/obs"
 )
 
 func TestAudit_HasLogTypeAndRequestID(t *testing.T) {
 	var buf bytes.Buffer
-	auditLog := New(obs.NewLogger(&buf, "json", slog.LevelInfo))
+	auditLog := New(obs.NewLogger(&buf, "json", slog.LevelInfo), nil)
 
 	handler := obs.RequestID(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		auditLog.Event(r.Context(), LoginSucceeded, slog.String("user", "alice"))
@@ -51,5 +53,25 @@ func TestEventTypes_Distinct(t *testing.T) {
 			t.Fatalf("event %q is empty or duplicated", ev)
 		}
 		seen[ev] = true
+	}
+}
+
+func TestEvent_CountsByType(t *testing.T) {
+	registry := metrics.New()
+	auditLog := New(slog.New(slog.DiscardHandler), registry)
+
+	auditLog.Event(t.Context(), LoginFailed)
+	auditLog.Event(t.Context(), LoginFailed)
+	auditLog.Event(t.Context(), LoginSucceeded)
+
+	rec := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	for _, line := range []string{
+		`mealie_mcp_audit_events_total{event="login_failed"} 2` + "\n",
+		`mealie_mcp_audit_events_total{event="login_succeeded"} 1` + "\n",
+	} {
+		if !strings.Contains(rec.Body.String(), line) {
+			t.Errorf("metrics missing %q", line)
+		}
 	}
 }
