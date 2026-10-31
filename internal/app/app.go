@@ -227,12 +227,12 @@ func (a *App) mcpHandler(sessions *session.Manager, tools *mcp.Server) http.Hand
 }
 
 func (a *App) withMiddleware(next http.Handler) http.Handler {
+	next = httpx.Recover(a.logger)(next)
 	next = a.metrics.Middleware(next)
 	next = httpx.SecurityHeaders(a.publicURLIsHTTPS())(next)
 	next = obs.AccessLog(a.logger)(next)
 	next = tracing.Middleware(a.tracing)(next)
-	next = obs.RequestID(next)
-	return httpx.Recover(a.logger)(next)
+	return obs.RequestID(next)
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {

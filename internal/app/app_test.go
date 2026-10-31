@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -1190,5 +1191,38 @@ func TestApp_DeleteExpiredLogsFailure(t *testing.T) {
 	a.deleteExpired(t.Context())
 	if !strings.Contains(logs.String(), "deleting expired rows failed") {
 		t.Errorf("logs = %s, want the cleanup failure logged", logs)
+	}
+}
+
+func TestWithMiddleware_PanicIsMeasuredAndTraced(t *testing.T) {
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	cfg := testConfig(t, fake.URL)
+	cfg.TracingEnabled = true
+	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter()}
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, exportTo(exporter))
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /boom", func(http.ResponseWriter, *http.Request) { panic("boom") })
+
+	rec := serve(t, a.withMiddleware(mux), http.MethodGet, "/boom")
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	scrape := serve(t, a.metrics.Handler(), http.MethodGet, "/metrics").Body.String()
+	if want := `mealie_mcp_http_request_duration_seconds_count{code="500",route="GET /boom"} 1` + "\n"; !strings.Contains(scrape, want) {
+		t.Errorf("scrape missing %q", want)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	spans := exporter.GetSpans()
+	found := slices.ContainsFunc(spans, func(span tracetest.SpanStub) bool {
+		return span.SpanKind == trace.SpanKindServer && span.Name == "GET /boom" && span.Status.Code == codes.Error
+	})
+	if !found {
+		t.Errorf("no errored server span named GET /boom among %d spans", len(spans))
 	}
 }
