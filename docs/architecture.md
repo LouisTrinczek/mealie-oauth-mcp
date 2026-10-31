@@ -74,7 +74,7 @@ call `run(ctx)`. Everything else is under `internal/`.
 
 | Path | Purpose |
 |---|---|
-| `/.well-known/oauth-protected-resource` | Protected-resource metadata (RFC 9728) |
+| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-protected-resource/mcp` | Protected-resource metadata (RFC 9728), at the root and at the `/mcp` suffix |
 | `/.well-known/oauth-authorization-server` | Authorization-server metadata (RFC 8414) |
 | `/register` | Dynamic client registration (RFC 7591), public clients only |
 | `/authorize` | Start a login |
@@ -168,10 +168,11 @@ A session is one successful login: one Mealie user and one MCP client.
   never asks the identity provider again after login, so this cap is the only
   way a deactivated identity-provider account eventually loses access.
 - **Revocation** happens when the client calls `/revoke`, when a refresh
-  token is reused, when Mealie answers `401`, or when a session passes its
-  cap. The next call then needs a new login.
+  token or authorization code is reused, or when Mealie answers `401`. A
+  session also expires at `SESSION_MAX_AGE`: the server then rejects its
+  tokens. Either way, the next call needs a new login.
 
-Expired rows are deleted by a periodic cleanup job. See
+A periodic cleanup job deletes expired rows. See
 [Sessions](../README.md#sessions) for the operator view.
 
 ## Security model
