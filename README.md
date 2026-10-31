@@ -413,7 +413,7 @@ make test               # tests with race detector, writes coverage.out
 make cover              # tests plus per-package coverage minimums
 make lint               # golangci-lint, writes golangci-report.xml
 make vuln               # govulncheck
-make fuzz               # run every fuzz target for FUZZTIME (default 30s)
+make fuzz               # run every fuzz target for FUZZTIME (default 10s)
 make test-integration   # Docker-based end-to-end test
 make dev-up             # local Mealie, mock login and server in Docker
 make dev-check          # test the running dev environment

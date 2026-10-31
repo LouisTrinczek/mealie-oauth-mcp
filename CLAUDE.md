@@ -59,7 +59,8 @@ rejects commits with unformatted Go files; enable it once per clone with
   `token`, `tokencrypt`, `tracing` (OpenTelemetry tracing).
 - `deploy/`: example Compose file for self-hosters.
 - `dev/`: Compose file behind `make dev-up`.
-- `docs/`: design documents and plans.
+- `docs/`: `architecture.md` (architecture overview) and `adr/` (decision
+  records). `docs/superpowers/` is local and git-ignored.
 - Create a package when there is code for it, not ahead of time. Name packages
   by what they provide (`oauth`, `mealie`, `store`), never `util` or `common`.
 

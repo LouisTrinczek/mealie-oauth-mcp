@@ -1,4 +1,4 @@
-FUZZTIME ?= 30s
+FUZZTIME ?= 10s
 GORELEASER_VERSION ?= v2.19.0
 INTEGRATION_COMPOSE = docker compose -f test/integration/compose.yml
 DEV_COMPOSE = docker compose -f dev/compose.yml
@@ -25,12 +25,12 @@ vuln:
 	go tool govulncheck ./...
 
 fuzz:
-	go test -run='^$$' -fuzz='^FuzzOpen$$' -fuzztime=10s ./internal/tokencrypt/
-	go test -run='^$$' -fuzz='^FuzzMatchRedirectURI$$' -fuzztime=10s ./internal/oauth/
-	go test -run='^$$' -fuzz='^FuzzValidateRedirectURI$$' -fuzztime=10s ./internal/oauth/
-	go test -run='^$$' -fuzz='^FuzzCIMDParse$$' -fuzztime=10s ./internal/oauth/
-	go test -run='^$$' -fuzz='^FuzzCheck$$' -fuzztime=10s ./internal/allowlist/
-	go test -run='^$$' -fuzz='^FuzzPathOf$$' -fuzztime=10s ./internal/mealie/
+	go test -run='^$$' -fuzz='^FuzzOpen$$' -fuzztime=$(FUZZTIME) ./internal/tokencrypt/
+	go test -run='^$$' -fuzz='^FuzzMatchRedirectURI$$' -fuzztime=$(FUZZTIME) ./internal/oauth/
+	go test -run='^$$' -fuzz='^FuzzValidateRedirectURI$$' -fuzztime=$(FUZZTIME) ./internal/oauth/
+	go test -run='^$$' -fuzz='^FuzzCIMDParse$$' -fuzztime=$(FUZZTIME) ./internal/oauth/
+	go test -run='^$$' -fuzz='^FuzzCheck$$' -fuzztime=$(FUZZTIME) ./internal/allowlist/
+	go test -run='^$$' -fuzz='^FuzzPathOf$$' -fuzztime=$(FUZZTIME) ./internal/mealie/
 
 test-integration:
 	$(INTEGRATION_COMPOSE) run --rm --build it; status=$$?; $(INTEGRATION_COMPOSE) down -v; exit $$status
