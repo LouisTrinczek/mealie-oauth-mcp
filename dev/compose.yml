@@ -1,0 +1,67 @@
+services:
+  oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:6.1.4@sha256:647dd8c78a54f0e6fcd58d79c884e612f8f998a0662276f3e1db22e464a50192
+    environment:
+      # The issuer carries the port it was reached on, so host and container ports must match.
+      SERVER_PORT: "8180"
+      JSON_CONFIG_PATH: /config/mock-oidc.json
+    volumes:
+      - ../test/integration/mock-oidc.json:/config/mock-oidc.json:ro
+    ports:
+      - "8180:8180"
+    networks:
+      default:
+        aliases:
+          - oidc.localhost
+
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v3.29.0@sha256:78eb28b8776d0bad40c5e605c72b3f4f5976793e491558c7dcbdfc04c835d4bc
+    environment:
+      OIDC_AUTH_ENABLED: "true"
+      OIDC_CONFIGURATION_URL: http://oidc.localhost:8180/default/.well-known/openid-configuration
+      OIDC_CLIENT_ID: mealie
+      OIDC_CLIENT_SECRET: secret
+      OIDC_SIGNUP_ENABLED: "true"
+      OIDC_USER_CLAIM: email
+      OIDC_ADMIN_GROUP: mealie-admins
+      BASE_URL: http://localhost:9000
+      TOKEN_TIME: "48"
+    ports:
+      - "9000:9000"
+    depends_on:
+      oidc:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:9000/api/app/about"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  mcp:
+    build: ..
+    read_only: true
+    environment:
+      PUBLIC_URL: http://localhost:8080
+      INSECURE_ALLOW_HTTP: "true"
+      MEALIE_URL: http://mealie:9000
+      ENCRYPTION_KEYS_FILE: /run/secrets/dev_keys
+      METRICS_ADDR: ":9090"
+      LOG_FORMAT: text
+    secrets:
+      - dev_keys
+    volumes:
+      - mcp-data:/data
+    ports:
+      - "8080:8080"
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      mealie:
+        condition: service_healthy
+
+secrets:
+  dev_keys:
+    file: ./encryption_keys.txt
+
+volumes:
+  mcp-data:
