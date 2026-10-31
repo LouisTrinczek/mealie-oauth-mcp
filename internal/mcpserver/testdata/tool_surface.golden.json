@@ -765,8 +765,8 @@
     "readOnly": true,
     "destructive": false,
     "input": {
-      "properties": null,
-      "required": null
+      "properties": {},
+      "required": []
     }
   }
 ]

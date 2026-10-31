@@ -60,6 +60,12 @@ func reduceInputSchema(schema any) (surfaceInput, error) {
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return surfaceInput{}, fmt.Errorf("decoding schema: %w", err)
 	}
+	if input.Properties == nil {
+		input.Properties = map[string]surfaceProperty{}
+	}
+	if input.Required == nil {
+		input.Required = []string{}
+	}
 	slices.Sort(input.Required)
 	return input, nil
 }
