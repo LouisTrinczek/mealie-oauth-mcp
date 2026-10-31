@@ -277,13 +277,14 @@ to them.
 
 1. Stop the server.
 2. Replace `mealie-mcp.db` in the data volume with the backup and delete
-   `mealie-mcp.db-wal` and `mealie-mcp.db-shm` if they exist. A helper
-   container does it with the right owner:
+   `mealie-mcp.db-wal` and `mealie-mcp.db-shm` if they exist. The copied
+   backup has mode `0600` and belongs to your host user, so a helper
+   container runs as root to read it and hands the restored file to `65532`:
 
    ```sh
-   docker run --rm --user 65532:65532 \
+   docker run --rm \
      -v <project>_mcp-data:/data -v "$PWD":/backup:ro alpine:3 \
-     sh -c 'rm -f /data/mealie-mcp.db-wal /data/mealie-mcp.db-shm && cp /backup/<file> /data/mealie-mcp.db'
+     sh -c 'rm -f /data/mealie-mcp.db-wal /data/mealie-mcp.db-shm && install -o 65532 -g 65532 -m 600 /backup/<file> /data/mealie-mcp.db'
    ```
 
 3. Start the server.
@@ -292,12 +293,18 @@ to them.
 
 [Litestream](https://litestream.io) can replicate the database to
 S3-compatible storage from a sidecar container. Add this service to the
-example Compose file, which defines the `mcp-data` volume it shares:
+example Compose file, which defines the `mcp-data` volume it shares. The
+sidecar runs as the server's user so the `-wal` and `-shm` files it may
+create stay writable for the server, and it starts after the server so the
+volume is created with the server's ownership:
 
 ```yaml
   litestream:
     image: litestream/litestream:0.5.17
     restart: unless-stopped
+    user: "65532:65532"
+    depends_on:
+      - mealie-oauth-mcp
     command: replicate
     environment:
       LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID}
@@ -316,10 +323,29 @@ dbs:
       url: s3://<bucket>/mealie-mcp
 ```
 
+For S3-compatible storage other than AWS, such as MinIO, Backblaze B2 or
+Cloudflare R2, also set the provider's `endpoint` and `region`. Litestream
+uses path-style URLs whenever an endpoint is set; add
+`force-path-style: false` only if your provider needs virtual-hosted-style
+URLs:
+
+```yaml
+dbs:
+  - path: /data/mealie-mcp.db
+    replica:
+      url: s3://<bucket>/mealie-mcp
+      endpoint: https://<s3-endpoint>
+      region: <region>
+```
+
 To restore, stop the server and the sidecar, and move or remove the existing
 `mealie-mcp.db`, `mealie-mcp.db-wal` and `mealie-mcp.db-shm`, because
 `litestream restore` refuses to overwrite a file. Then run a one-off
-container as the server's user and start the server again:
+container as the server's user and start the server again. It writes the
+database itself into the volume, which belongs to that user, so the restored
+files get the right owner without a separate step. For S3-compatible storage,
+append `?endpoint=https://<s3-endpoint>&region=<region>` to the replica URL
+and quote it so the shell keeps the `&`:
 
 ```sh
 docker run --rm --user 65532:65532 \
@@ -336,7 +362,7 @@ keys separately: the database is useless without them.
 ## Releases
 
 Versions follow [SemVer](https://semver.org) and commits follow
-[Conventional Commits](https://www.conventionalcommits.org). Each release has
+[Conventional Commits](https://www.conventionalcommits.org).
 release-please maintains `CHANGELOG.md` from the first release on, and each
 release's notes say which Mealie version it was tested against.
 
