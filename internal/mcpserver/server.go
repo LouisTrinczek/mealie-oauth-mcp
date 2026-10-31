@@ -11,7 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
@@ -53,15 +52,6 @@ type Deps struct {
 }
 
 func New(d Deps) (*mcp.Server, error) {
-	if d.Logger == nil {
-		d.Logger = slog.New(slog.DiscardHandler)
-	}
-	if d.Metrics == nil {
-		d.Metrics = metrics.New()
-	}
-	if d.Tracing == nil {
-		d.Tracing = noop.NewTracerProvider()
-	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: d.Version}, nil)
 	closedWorld := false
 	mcp.AddTool(srv, &mcp.Tool{

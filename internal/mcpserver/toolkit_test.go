@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/allowlist"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
@@ -105,7 +104,7 @@ func TestInputSchema_Error(t *testing.T) {
 		t.Errorf("inputSchema error = %v, want an inferring error", err)
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
-	err := addActionTool(srv, Deps{Tracing: noop.NewTracerProvider()}, toolSpec{name: "broken"}, []action[channelInput]{{name: "x"}}, nil)
+	err := addActionTool(srv, Deps{}, toolSpec{name: "broken"}, []action[channelInput]{{name: "x"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "inferring") {
 		t.Errorf("addActionTool error = %v, want an inferring error", err)
 	}

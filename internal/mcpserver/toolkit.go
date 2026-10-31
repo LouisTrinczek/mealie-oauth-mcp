@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/allowlist"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
@@ -124,6 +125,15 @@ type toolkit struct {
 }
 
 func (d Deps) toolkit() toolkit {
+	if d.Logger == nil {
+		d.Logger = slog.New(slog.DiscardHandler)
+	}
+	if d.Metrics == nil {
+		d.Metrics = metrics.New()
+	}
+	if d.Tracing == nil {
+		d.Tracing = noop.NewTracerProvider()
+	}
 	return toolkit{logger: d.Logger, metrics: d.Metrics, tracer: tracing.Tracer(d.Tracing)}
 }
 
