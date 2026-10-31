@@ -36,10 +36,11 @@ test-integration:
 	$(INTEGRATION_COMPOSE) run --rm --build it; status=$$?; $(INTEGRATION_COMPOSE) down -v; exit $$status
 
 dev-up: $(DEV_KEYS)
-	$(DEV_COMPOSE) up -d --build --wait
+	$(DEV_COMPOSE) up -d --build --wait || { $(DEV_COMPOSE) down; exit 1; }
 
 $(DEV_KEYS):
 	key=$$(openssl rand -base64 32) && printf 'dev:%s\n' "$$key" > $@
+	chmod 644 $@
 
 dev-down:
 	$(DEV_COMPOSE) down -v
