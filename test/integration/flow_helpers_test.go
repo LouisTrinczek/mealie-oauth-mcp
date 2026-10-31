@@ -302,7 +302,7 @@ func (f *flow) connect(t *testing.T) *mcp.ClientSession {
 	client := mcp.NewClient(&mcp.Implementation{Name: "integration-test", Version: "1"}, nil)
 	session, err := client.Connect(f.ctx, &mcp.StreamableClientTransport{
 		Endpoint:   f.resourceURL(),
-		HTTPClient: &http.Client{Timeout: requestTimeout, Transport: bearerTransport(f.tokens.AccessToken)},
+		HTTPClient: &http.Client{Timeout: requestTimeout, Transport: bearerTransport{token: f.tokens.AccessToken, next: f.api.Transport}},
 	}, nil)
 	if err != nil {
 		t.Fatalf("connecting MCP client: %v", err)
@@ -464,10 +464,13 @@ func formField(t *testing.T, page []byte, pattern string) string {
 	return string(match[1])
 }
 
-type bearerTransport string
+type bearerTransport struct {
+	token string
+	next  http.RoundTripper
+}
 
 func (b bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
-	req.Header.Set("Authorization", "Bearer "+string(b))
-	return http.DefaultTransport.RoundTrip(req)
+	req.Header.Set("Authorization", "Bearer "+b.token)
+	return b.next.RoundTrip(req)
 }
