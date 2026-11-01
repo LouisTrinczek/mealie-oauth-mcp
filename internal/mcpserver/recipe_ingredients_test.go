@@ -59,32 +59,41 @@ func TestRecipesWrite_UpdateRestoresOriginalText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			api := newFakeMealie(t)
-			api.on(http.MethodGet, tomatoSoupPath, http.StatusOK, tt.stored)
-			api.on(http.MethodPatch, tomatoSoupPath, http.StatusOK, recipeBody)
-			cs := connectTools(t, api)
-
-			res := callTool(t, cs, "recipes_write", map[string]any{"action": "update", "slug": "tomato-soup", "fields": decodeJSON(t, tt.fields)})
-			if res.IsError {
-				t.Fatalf("tool error: %s", resultText(t, res))
-			}
-			wantMethods := []string{http.MethodPatch}
-			if tt.wantRead {
-				wantMethods = []string{http.MethodGet, http.MethodPatch}
-			}
-			seen := api.requests()
-			methods := make([]string, 0, len(seen))
-			for _, request := range seen {
-				methods = append(methods, request.Method)
-			}
-			if !reflect.DeepEqual(methods, wantMethods) {
-				t.Fatalf("methods = %v, want %v", methods, wantMethods)
-			}
-			if got := decodeJSON(t, seen[len(seen)-1].Body); !reflect.DeepEqual(got, decodeJSON(t, tt.wantSent)) {
-				t.Errorf("sent %s, want %s", seen[len(seen)-1].Body, tt.wantSent)
-			}
+			requireUpdateSends(t, tt.stored, tt.fields, tt.wantSent, tt.wantRead)
 		})
 	}
+}
+
+func requireUpdateSends(t *testing.T, stored, fields, wantSent string, wantRead bool) {
+	t.Helper()
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, tomatoSoupPath, http.StatusOK, stored)
+	api.on(http.MethodPatch, tomatoSoupPath, http.StatusOK, recipeBody)
+	cs := connectTools(t, api)
+
+	res := callTool(t, cs, "recipes_write", map[string]any{"action": "update", "slug": "tomato-soup", "fields": decodeJSON(t, fields)})
+	if res.IsError {
+		t.Fatalf("tool error: %s", resultText(t, res))
+	}
+	wantMethods := []string{http.MethodPatch}
+	if wantRead {
+		wantMethods = []string{http.MethodGet, http.MethodPatch}
+	}
+	seen := api.requests()
+	if methods := methodsOf(seen); !reflect.DeepEqual(methods, wantMethods) {
+		t.Fatalf("methods = %v, want %v", methods, wantMethods)
+	}
+	if sent := seen[len(seen)-1].Body; !reflect.DeepEqual(decodeJSON(t, sent), decodeJSON(t, wantSent)) {
+		t.Errorf("sent %s, want %s", sent, wantSent)
+	}
+}
+
+func methodsOf(requests []seenRequest) []string {
+	methods := make([]string, 0, len(requests))
+	for _, request := range requests {
+		methods = append(methods, request.Method)
+	}
+	return methods
 }
 
 func TestRecipesWrite_UpdateDoesNotWriteWhenStoredRecipeFails(t *testing.T) {
