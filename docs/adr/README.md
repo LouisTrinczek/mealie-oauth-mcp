@@ -18,6 +18,7 @@ and what follows from it. For the big picture, start with the
 | [10](0010-admins-may-log-in.md) | Let admins log in; keep admin features unreachable |
 | [11](0011-observability-and-health-endpoints.md) | Metrics on a separate listener, optional OTLP tracing, separate liveness and readiness |
 | [12](0012-releases-and-supply-chain.md) | Release with release-please and GoReleaser, build the image from the Dockerfile, sign keylessly |
+| [13](0013-opentelemetry-metrics-with-prometheus-exporter.md) | Instrument metrics with OpenTelemetry and export them for Prometheus |
 
 ## Adding a record
 

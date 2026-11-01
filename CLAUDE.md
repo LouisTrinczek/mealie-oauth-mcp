@@ -24,6 +24,12 @@ disagree, say so instead of silently picking one.
 - Never push without explicit user approval.
 - Keep responsibilities separated: one package, file, and function per
   concern.
+- Record every architecture decision as an ADR in `docs/adr/`, in the same
+  change that makes it. That covers new dependencies, new packages, changes
+  to auth, storage, security or observability, and any departure from an
+  existing ADR. Follow `docs/adr/README.md`: next free number, add a row to
+  its table, and supersede an old record with a new one instead of
+  rewriting it. Update `docs/architecture.md` when the overview changes.
 
 ## Commands
 
@@ -56,7 +62,7 @@ rejects commits with unformatted Go files; enable it once per clone with
   (wiring, routes, startup checks), `audit`, `codestyle` (no-comments test),
   `config`, `healthcheck` (container health command), `httpx` (middleware,
   rate limiting), `mcpserver`, `mealie` (API
-  client), `metrics` (Prometheus metrics), `oauth`, `obs` (logging),
+  client), `metrics` (OpenTelemetry metrics, Prometheus scrape), `oauth`, `obs` (logging),
   `secret`, `session`, `store` (SQLite), `token`, `tokencrypt`, `tracing`
   (OpenTelemetry tracing), `view` (compact tool output).
 - `deploy/`: example Compose file for self-hosters.

@@ -525,7 +525,7 @@ func TestNeedPresent(t *testing.T) {
 }
 
 func TestAddSingleTool_ObservesCalls(t *testing.T) {
-	registry := metrics.New()
+	registry := newMetrics(t)
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test"}, nil)
@@ -591,6 +591,15 @@ func assertProbeSpan(t *testing.T, i int, span tracetest.SpanStub) {
 	}
 }
 
+func newMetrics(t *testing.T) *metrics.Registry {
+	t.Helper()
+	registry, err := metrics.New()
+	if err != nil {
+		t.Fatalf("metrics.New: %v", err)
+	}
+	return registry
+}
+
 func scrapeRegistry(t *testing.T, registry *metrics.Registry) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -599,7 +608,7 @@ func scrapeRegistry(t *testing.T, registry *metrics.Registry) string {
 }
 
 func TestWhoami_ObservesCall(t *testing.T) {
-	registry := metrics.New()
+	registry := newMetrics(t)
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	profile := &fakeMealie{user: mealie.User{ID: "user-1", Username: "alice"}}
