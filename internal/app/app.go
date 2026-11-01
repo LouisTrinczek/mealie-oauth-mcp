@@ -77,13 +77,17 @@ type App struct {
 }
 
 func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) (*App, error) {
-	return newApp(ctx, cfg, logger, version, mcpserver.New, tracing.OTLP)
+	return newApp(ctx, cfg, logger, version, mcpserver.New, metrics.New, tracing.OTLP)
 }
 
-func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string, buildTools func(mcpserver.Deps) (*mcp.Server, error), export tracing.Exporter) (*App, error) {
+func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string, buildTools func(mcpserver.Deps) (*mcp.Server, error), newMetrics func() (*metrics.Registry, error), export tracing.Exporter) (*App, error) {
 	keyring, err := tokencrypt.NewKeyring(cfg.EncryptionKeys)
 	if err != nil {
 		return nil, fmt.Errorf("loading encryption keys: %w", err)
+	}
+	registry, err := newMetrics()
+	if err != nil {
+		return nil, fmt.Errorf("starting metrics: %w", err)
 	}
 	provider, shutdownTracing, err := tracing.Setup(ctx, cfg.TracingEnabled, version, export, logger)
 	if err != nil {
@@ -94,7 +98,7 @@ func newApp(ctx context.Context, cfg *config.Config, logger *slog.Logger, versio
 		logger:        logger,
 		now:           time.Now,
 		shutdownGrace: shutdownGracePeriod,
-		metrics:       metrics.New(),
+		metrics:       registry,
 		tracing:       provider,
 		flushTracing:  flushWithin(context.WithoutCancel(ctx), shutdownTracing),
 	}
@@ -378,7 +382,7 @@ func (a *App) refreshActiveSessions(ctx context.Context) {
 		a.logger.ErrorContext(ctx, "counting active sessions failed", slog.Any("error", err))
 		return
 	}
-	a.metrics.SetActiveSessions(count)
+	a.metrics.SetActiveSessions(ctx, count)
 }
 
 type incompatibleMealie string

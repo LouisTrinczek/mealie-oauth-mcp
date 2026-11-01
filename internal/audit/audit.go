@@ -32,13 +32,13 @@ type Logger struct {
 
 func New(logger *slog.Logger, m *metrics.Registry) *Logger {
 	if m == nil {
-		m = metrics.New()
+		m = metrics.Discard()
 	}
 	return &Logger{logger: logger, metrics: m}
 }
 
 func (l *Logger) Event(ctx context.Context, ev EventType, attrs ...slog.Attr) {
-	l.metrics.CountAuditEvent(string(ev))
+	l.metrics.CountAuditEvent(ctx, string(ev))
 	base := []slog.Attr{
 		slog.String("log_type", "audit"),
 		slog.String("request_id", obs.RequestIDFrom(ctx)),

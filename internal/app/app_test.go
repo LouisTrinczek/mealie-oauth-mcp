@@ -31,6 +31,7 @@ import (
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/config"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mcpserver"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/secret"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/store"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/token"
@@ -954,7 +955,7 @@ func TestApp_NewFailsWhenToolsDoNotBuild(t *testing.T) {
 	cfg.TracingEnabled = true
 	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter(), shutdownErr: errors.New("collector gone")}
 
-	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", failing, exportTo(exporter))
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", failing, metrics.New, exportTo(exporter))
 	if err == nil {
 		_ = a.Close()
 		t.Fatal("newApp succeeded with a failing tools builder")
@@ -981,7 +982,7 @@ func TestApp_ToolsGetTheAppLogger(t *testing.T) {
 		return mcpserver.New(d)
 	}
 
-	a, err := newApp(t.Context(), cfg, logger, "test", capture, tracing.OTLP)
+	a, err := newApp(t.Context(), cfg, logger, "test", capture, metrics.New, tracing.OTLP)
 	if err != nil {
 		t.Fatalf("newApp: %v", err)
 	}
@@ -1005,13 +1006,27 @@ func exportTo(exporter sdktrace.SpanExporter) tracing.Exporter {
 	return func(context.Context) (sdktrace.SpanExporter, error) { return exporter, nil }
 }
 
+func TestNewApp_MetricsSetupFailure(t *testing.T) {
+	cfg := testConfig(t, startFakeMealie(t, currentAbout, http.StatusOK).URL)
+	failing := func() (*metrics.Registry, error) { return nil, errors.New("exporter refused") }
+
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, failing, tracing.OTLP)
+	if err == nil {
+		_ = a.Close()
+		t.Fatal("newApp succeeded with failing metrics")
+	}
+	if !strings.Contains(err.Error(), "starting metrics") {
+		t.Errorf("error = %q, want it to contain starting metrics", err)
+	}
+}
+
 func TestNewApp_TracingSetupFailure(t *testing.T) {
 	fake := startFakeMealie(t, currentAbout, http.StatusOK)
 	cfg := testConfig(t, fake.URL)
 	cfg.TracingEnabled = true
 	failing := func(context.Context) (sdktrace.SpanExporter, error) { return nil, errors.New("no collector") }
 
-	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, failing)
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, metrics.New, failing)
 	if err == nil {
 		_ = a.Close()
 		t.Fatal("newApp succeeded with a failing exporter")
@@ -1034,7 +1049,7 @@ func TestApp_CloseReportsTracingFlushFailure(t *testing.T) {
 	cfg := testConfig(t, fake.URL)
 	cfg.TracingEnabled = true
 	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter(), shutdownErr: errors.New("collector gone")}
-	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, exportTo(exporter))
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, metrics.New, exportTo(exporter))
 	if err != nil {
 		t.Fatalf("newApp: %v", err)
 	}
@@ -1054,7 +1069,7 @@ func TestHandler_SpansNamedByRoute(t *testing.T) {
 	cfg := testConfig(t, fake.URL)
 	cfg.TracingEnabled = true
 	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter()}
-	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, exportTo(exporter))
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, metrics.New, exportTo(exporter))
 	if err != nil {
 		t.Fatalf("newApp: %v", err)
 	}
@@ -1199,7 +1214,7 @@ func TestWithMiddleware_PanicIsMeasuredAndTraced(t *testing.T) {
 	cfg := testConfig(t, fake.URL)
 	cfg.TracingEnabled = true
 	exporter := retainingExporter{InMemoryExporter: tracetest.NewInMemoryExporter()}
-	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, exportTo(exporter))
+	a, err := newApp(t.Context(), cfg, slog.New(slog.DiscardHandler), "test", mcpserver.New, metrics.New, exportTo(exporter))
 	if err != nil {
 		t.Fatalf("newApp: %v", err)
 	}

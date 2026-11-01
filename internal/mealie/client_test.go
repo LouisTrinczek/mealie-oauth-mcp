@@ -575,7 +575,7 @@ func TestRequest_ObservesEachAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse url: %v", err)
 	}
-	registry := metrics.New()
+	registry := newMetrics(t)
 	exporter := tracetest.NewInMemoryExporter()
 	c := New(base, Options{Metrics: registry, Tracing: sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))})
 	c.backoff = []time.Duration{0, 0}
@@ -636,6 +636,15 @@ func assertSpanAttributes(t *testing.T, span tracetest.SpanStub, wantOutcome str
 	}
 }
 
+func newMetrics(t *testing.T) *metrics.Registry {
+	t.Helper()
+	registry, err := metrics.New()
+	if err != nil {
+		t.Fatalf("metrics.New: %v", err)
+	}
+	return registry
+}
+
 func scrapeMetrics(t *testing.T, registry *metrics.Registry) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -652,7 +661,7 @@ func TestRequest_ObservesEveryExhaustedAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse url: %v", err)
 	}
-	registry := metrics.New()
+	registry := newMetrics(t)
 	exporter := tracetest.NewInMemoryExporter()
 	c := New(base, Options{Metrics: registry, Tracing: sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))})
 	c.backoff = []time.Duration{0, 0}
@@ -682,7 +691,7 @@ func TestRequest_ObservesCanceledInFlight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse url: %v", err)
 	}
-	registry := metrics.New()
+	registry := newMetrics(t)
 	c := New(base, Options{Metrics: registry})
 	ctx, cancel := context.WithCancel(t.Context())
 	go func() {

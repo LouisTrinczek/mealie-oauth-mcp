@@ -129,7 +129,7 @@ func (d Deps) toolkit() toolkit {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
 	if d.Metrics == nil {
-		d.Metrics = metrics.New()
+		d.Metrics = metrics.Discard()
 	}
 	if d.Tracing == nil {
 		d.Tracing = noop.NewTracerProvider()
@@ -254,7 +254,7 @@ func observed[In, Out any](kit toolkit, name string, handler mcp.ToolHandlerFor[
 		if err != nil {
 			span.SetStatus(codes.Error, "tool call failed")
 		}
-		kit.metrics.ObserveTool(name, err != nil, time.Since(started))
+		kit.metrics.ObserveTool(ctx, name, err != nil, time.Since(started))
 		return result, out, err
 	}
 }

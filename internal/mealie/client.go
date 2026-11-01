@@ -69,7 +69,7 @@ func New(baseURL *url.URL, opts Options) *Client {
 	}
 	registry := opts.Metrics
 	if registry == nil {
-		registry = metrics.New()
+		registry = metrics.Discard()
 	}
 	tracerProvider := opts.Tracing
 	if tracerProvider == nil {
@@ -211,7 +211,7 @@ func (c *Client) attempt(ctx context.Context, tok secret.Secret, method, target 
 	started := time.Now()
 	raw, err := c.send(ctx, tok, method, target, payload)
 	result := outcome(err)
-	c.metrics.ObserveMealie(method, result, time.Since(started))
+	c.metrics.ObserveMealie(ctx, method, result, time.Since(started))
 	span.SetAttributes(attribute.String("http.request.method", method), attribute.String("mealie.outcome", result))
 	if err != nil {
 		span.SetStatus(codes.Error, result)

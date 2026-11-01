@@ -1,13 +1,89 @@
 package metrics
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 )
+
+func newRegistry(t *testing.T) *Registry {
+	t.Helper()
+	registry, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return registry
+}
+
+type refusingRegisterer struct {
+	prometheus.Registerer
+	accepted int
+}
+
+func (r *refusingRegisterer) Register(c prometheus.Collector) error {
+	if r.accepted == 0 {
+		return errors.New("registration refused")
+	}
+	r.accepted--
+	return r.Registerer.Register(c)
+}
+
+type refusingMeter struct {
+	noop.Meter
+}
+
+func (refusingMeter) Int64Gauge(string, ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
+	return nil, errors.New("instrument refused")
+}
+
+func TestNewScraped_RegistrationFailures(t *testing.T) {
+	for _, tc := range []struct {
+		accepted int
+		want     string
+	}{
+		{accepted: 0, want: "registering Go collector"},
+		{accepted: 1, want: "registering process collector"},
+		{accepted: 2, want: "starting Prometheus exporter"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			registry := prometheus.NewRegistry()
+			_, err := newScraped(&refusingRegisterer{Registerer: registry, accepted: tc.accepted}, registry)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestNewInstruments_InstrumentFailure(t *testing.T) {
+	_, err := newInstruments(refusingMeter{}, http.NotFoundHandler())
+	if err == nil || !strings.Contains(err.Error(), "creating metric instruments") {
+		t.Errorf("error = %v, want it to contain creating metric instruments", err)
+	}
+}
+
+func TestDiscard_RecordsNothingAndServesNoScrape(t *testing.T) {
+	registry := Discard()
+	registry.ObserveTool(t.Context(), "recipes_read", false, time.Millisecond)
+	registry.ObserveMealie(t.Context(), "GET", "ok", time.Millisecond)
+	registry.CountAuditEvent(t.Context(), "login_succeeded")
+	registry.SetActiveSessions(t.Context(), 1)
+	registry.Middleware(http.NotFoundHandler()).ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
+
+	rec := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("scrape status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
 
 func scrape(t *testing.T, r *Registry) string {
 	t.Helper()
@@ -21,7 +97,7 @@ func scrape(t *testing.T, r *Registry) string {
 }
 
 func TestMiddleware_LabelsByRoutePattern(t *testing.T) {
-	registry := New()
+	registry := newRegistry(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /callback", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusFound)
@@ -48,12 +124,12 @@ func TestMiddleware_LabelsByRoutePattern(t *testing.T) {
 }
 
 func TestObservers(t *testing.T) {
-	registry := New()
-	registry.ObserveTool("recipes_read", false, time.Millisecond)
-	registry.ObserveTool("recipes_read", true, time.Millisecond)
-	registry.ObserveMealie("GET", "server_error", time.Millisecond)
-	registry.CountAuditEvent("login_succeeded")
-	registry.SetActiveSessions(3)
+	registry := newRegistry(t)
+	registry.ObserveTool(t.Context(), "recipes_read", false, time.Millisecond)
+	registry.ObserveTool(t.Context(), "recipes_read", true, time.Millisecond)
+	registry.ObserveMealie(t.Context(), "GET", "server_error", time.Millisecond)
+	registry.CountAuditEvent(t.Context(), "login_succeeded")
+	registry.SetActiveSessions(t.Context(), 3)
 
 	body := scrape(t, registry)
 	for _, want := range []string{
@@ -71,9 +147,9 @@ func TestObservers(t *testing.T) {
 }
 
 func TestNew_RegistriesAreIndependent(t *testing.T) {
-	first := New()
-	second := New()
-	first.CountAuditEvent("login_succeeded")
+	first := newRegistry(t)
+	second := newRegistry(t)
+	first.CountAuditEvent(t.Context(), "login_succeeded")
 
 	if !strings.Contains(scrape(t, first), `mealie_mcp_audit_events_total{event="login_succeeded"} 1`+"\n") {
 		t.Error("first registry missing its own count")
@@ -84,7 +160,7 @@ func TestNew_RegistriesAreIndependent(t *testing.T) {
 }
 
 func TestMiddleware_DefaultsToStatus200WhenHandlerNeverWritesHeader(t *testing.T) {
-	registry := New()
+	registry := newRegistry(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /plain", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))

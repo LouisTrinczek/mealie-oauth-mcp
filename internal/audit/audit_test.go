@@ -57,7 +57,10 @@ func TestEventTypes_Distinct(t *testing.T) {
 }
 
 func TestEvent_CountsByType(t *testing.T) {
-	registry := metrics.New()
+	registry, err := metrics.New()
+	if err != nil {
+		t.Fatalf("metrics.New: %v", err)
+	}
 	auditLog := New(slog.New(slog.DiscardHandler), registry)
 
 	auditLog.Event(t.Context(), LoginFailed)

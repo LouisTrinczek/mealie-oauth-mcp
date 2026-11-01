@@ -64,7 +64,7 @@ call `run(ctx)`. Everything else is under `internal/`.
 | `config` | Environment parsing and validation |
 | `audit` | Audit events |
 | `obs` | Logging, request IDs, access log |
-| `metrics` | Prometheus metrics |
+| `metrics` | OpenTelemetry metrics, served in Prometheus format |
 | `tracing` | Optional OTLP tracing |
 | `httpx` | HTTP middleware and rate limiting |
 | `view` | Compact, null-free output for tool results |
