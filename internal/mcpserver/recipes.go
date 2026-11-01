@@ -135,7 +135,11 @@ func updateRecipe(ctx context.Context, s *session, in recipesWriteInput) (any, e
 	if len(in.Fields) == 0 {
 		return nil, needPresent("update", "fields", false)
 	}
-	raw, err := callRecipe(ctx, s, http.MethodPatch, in.Slug, "", in.Fields)
+	fields, err := withStoredOriginalText(ctx, s, in.Slug, in.Fields)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := callRecipe(ctx, s, http.MethodPatch, in.Slug, "", fields)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +370,10 @@ func getRecipe(ctx context.Context, s *session, in recipesReadInput) (any, error
 	if err != nil {
 		return nil, err
 	}
-	return trimmed(raw, in.Full)
+	if in.Full {
+		return raw, nil
+	}
+	return view.TrimRecipe(raw)
 }
 
 func suggestRecipes(ctx context.Context, s *session, in recipesReadInput) (any, error) {
