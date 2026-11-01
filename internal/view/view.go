@@ -46,6 +46,14 @@ var referenceKeys = []string{"id", "slug", "name", "username"}
 var labelKeys = []string{"name", "slug", "id"}
 
 func Trim(raw json.RawMessage) (json.RawMessage, error) {
+	value, err := decodeValue(raw)
+	if err != nil {
+		return nil, err
+	}
+	return marshal(trimmed(value))
+}
+
+func decodeValue(raw json.RawMessage) (any, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var value any
@@ -55,7 +63,7 @@ func Trim(raw json.RawMessage) (json.RawMessage, error) {
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return nil, errors.New("decoding object: unexpected data after top-level value")
 	}
-	return marshal(trimmed(value))
+	return value, nil
 }
 
 func marshal(value any) ([]byte, error) {

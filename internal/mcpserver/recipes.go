@@ -366,7 +366,10 @@ func getRecipe(ctx context.Context, s *session, in recipesReadInput) (any, error
 	if err != nil {
 		return nil, err
 	}
-	return trimmed(raw, in.Full)
+	if in.Full {
+		return raw, nil
+	}
+	return view.TrimRecipe(raw)
 }
 
 func suggestRecipes(ctx context.Context, s *session, in recipesReadInput) (any, error) {
