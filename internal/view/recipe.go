@@ -40,6 +40,9 @@ func reduceIngredient(ingredient map[string]any) {
 	for _, substitution := range objects(ingredient["substitutions"]) {
 		keepOnlyIn(substitution, "substituteFood", ingredientObjectKeys)
 	}
+	if !isEmpty(ingredient["display"]) {
+		delete(ingredient, "originalText")
+	}
 }
 
 func keepOnlyIn(parent map[string]any, field string, keys []string) {

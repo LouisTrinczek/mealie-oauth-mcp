@@ -13,41 +13,61 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const (
+	parsedOriginalText   = "2 of it"
+	unparsedOriginalText = "a pinch of salt"
+	changedOriginalText  = "changed by the agent"
+)
+
 type stepReference struct {
 	ReferenceID string `json:"referenceId"`
-}
-
-type linkedIngredient struct {
-	ReferenceID string    `json:"referenceId"`
-	Food        namedItem `json:"food"`
-	Unit        namedItem `json:"unit"`
 }
 
 type linkedStep struct {
 	IngredientReferences []stepReference `json:"ingredientReferences"`
 }
 
-type recipeLinks struct {
-	Ingredients []linkedIngredient `json:"recipeIngredient"`
-	Steps       []linkedStep       `json:"recipeInstructions"`
+type storedRecipe struct {
+	Ingredients []map[string]any `json:"recipeIngredient"`
+	Steps       []linkedStep     `json:"recipeInstructions"`
 }
 
-func TestTrimmedRecipeUpdateKeepsLinks(t *testing.T) {
+func TestTrimmedRecipeUpdateLosesNothing(t *testing.T) {
 	session := loggedInSession(t)
-	suffix := uniqueSuffix()
-	food := fullIngredient(t, session, "foods", "Trim Food "+suffix)
-	unit := fullIngredient(t, session, "units", "Trim Unit "+suffix)
-	slug := recipeWithLinkedIngredient(t, session, "Trim Round Trip "+suffix, food, unit)
-	before := linksOf(t, session, slug)
-	if len(before.Ingredients) != 1 || before.Ingredients[0].Food.ID != food["id"] || before.Ingredients[0].Unit.ID != unit["id"] {
-		t.Fatalf("setup: ingredients %+v are not linked to food %v and unit %v", before.Ingredients, food["id"], unit["id"])
+	slug, food, unit := recipeWithLinkedIngredients(t, session, "Trim Round Trip "+uniqueSuffix())
+	before := storedRecipeOf(t, session, slug)
+	parsed := before.Ingredients[0]
+	if parsed["food"].(map[string]any)["id"] != food["id"] || parsed["unit"].(map[string]any)["id"] != unit["id"] || parsed["originalText"] != parsedOriginalText {
+		t.Fatalf("setup: parsed ingredient %v is not linked to food %v and unit %v", parsed, food["id"], unit["id"])
 	}
 
 	ingredients := trimmedIngredients(t, session, slug)
+	if _, present := ingredients[0]["originalText"]; present {
+		t.Fatalf("trimmed parsed ingredient %v still has originalText", ingredients[0])
+	}
 	callOK(t, session, "recipes_write", map[string]any{"action": "update", "slug": slug, "fields": map[string]any{"recipeIngredient": ingredients}}, nil)
 
-	if after := linksOf(t, session, slug); !reflect.DeepEqual(after, before) {
-		t.Fatalf("links after update = %+v, want %+v", after, before)
+	if after := storedRecipeOf(t, session, slug); !reflect.DeepEqual(after, before) {
+		t.Fatalf("recipe after update = %+v, want %+v", after, before)
+	}
+}
+
+func TestTrimmedRecipeUpdateKeepsAgentChanges(t *testing.T) {
+	session := loggedInSession(t)
+	slug, _, _ := recipeWithLinkedIngredients(t, session, "Trim Agent Changes "+uniqueSuffix())
+
+	ingredients := trimmedIngredients(t, session, slug)
+	ingredients[1]["originalText"] = changedOriginalText
+	ingredients = append(ingredients, map[string]any{"note": "pepper"})
+	callOK(t, session, "recipes_write", map[string]any{"action": "update", "slug": slug, "fields": map[string]any{"recipeIngredient": ingredients}}, nil)
+
+	after := storedRecipeOf(t, session, slug)
+	got := make([]any, 0, len(after.Ingredients))
+	for _, ingredient := range after.Ingredients {
+		got = append(got, ingredient["originalText"])
+	}
+	if want := []any{parsedOriginalText, changedOriginalText, nil}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("originalText after update = %v, want %v", got, want)
 	}
 }
 
@@ -60,20 +80,28 @@ func fullIngredient(t *testing.T, session *mcp.ClientSession, kind, name string)
 	return full
 }
 
-func recipeWithLinkedIngredient(t *testing.T, session *mcp.ClientSession, name string, food, unit map[string]any) string {
+func recipeWithLinkedIngredients(t *testing.T, session *mcp.ClientSession, name string) (string, map[string]any, map[string]any) {
 	t.Helper()
+	food := fullIngredient(t, session, "foods", name+" food")
+	unit := fullIngredient(t, session, "units", name+" unit")
 	var created namedItem
 	callOK(t, session, "recipes_write", map[string]any{"action": "create", "name": name}, &created)
-	referenceID := newUUID()
+	parsedID, unparsedID := newUUID(), newUUID()
 	callOK(t, session, "mealie_api", map[string]any{
 		"method": "PATCH",
 		"path":   "/api/recipes/" + created.Slug,
 		"body": map[string]any{
-			"recipeIngredient":   []any{map[string]any{"referenceId": referenceID, "quantity": 2, "food": food, "unit": unit, "originalText": "2 of it"}},
-			"recipeInstructions": []any{map[string]any{"id": newUUID(), "text": "Mix.", "ingredientReferences": []any{map[string]any{"referenceId": referenceID}}}},
+			"recipeIngredient": []any{
+				map[string]any{"referenceId": parsedID, "quantity": 2, "food": food, "unit": unit, "note": "chopped", "originalText": parsedOriginalText},
+				map[string]any{"referenceId": unparsedID, "note": "salt to taste", "originalText": unparsedOriginalText},
+			},
+			"recipeInstructions": []any{
+				map[string]any{"id": newUUID(), "text": "Mix.", "ingredientReferences": []any{map[string]any{"referenceId": parsedID}}},
+				map[string]any{"id": newUUID(), "text": "Season.", "ingredientReferences": []any{map[string]any{"referenceId": unparsedID}}},
+			},
 		},
 	}, nil)
-	return created.Slug
+	return created.Slug, food, unit
 }
 
 func trimmedIngredients(t *testing.T, session *mcp.ClientSession, slug string) []map[string]any {
@@ -82,22 +110,23 @@ func trimmedIngredients(t *testing.T, session *mcp.ClientSession, slug string) [
 		Ingredients []map[string]any `json:"recipeIngredient"`
 	}
 	callOK(t, session, "recipes_read", map[string]any{"action": "get", "slug": slug}, &recipe)
-	for _, ingredient := range recipe.Ingredients {
-		for _, field := range []string{"food", "unit"} {
-			reference, _ := ingredient[field].(map[string]any)
-			if keys := slices.Sorted(maps.Keys(reference)); !slices.Equal(keys, []string{"id", "name"}) {
-				t.Fatalf("trimmed %s has keys %v, want [id name]", field, keys)
-			}
+	for _, field := range []string{"food", "unit"} {
+		reference, _ := recipe.Ingredients[0][field].(map[string]any)
+		if keys := slices.Sorted(maps.Keys(reference)); !slices.Equal(keys, []string{"id", "name"}) {
+			t.Fatalf("trimmed %s has keys %v, want [id name]", field, keys)
 		}
 	}
 	return recipe.Ingredients
 }
 
-func linksOf(t *testing.T, session *mcp.ClientSession, slug string) recipeLinks {
+func storedRecipeOf(t *testing.T, session *mcp.ClientSession, slug string) storedRecipe {
 	t.Helper()
-	var links recipeLinks
-	callOK(t, session, "recipes_read", map[string]any{"action": "get", "slug": slug, "full": true}, &links)
-	return links
+	var recipe storedRecipe
+	callOK(t, session, "recipes_read", map[string]any{"action": "get", "slug": slug, "full": true}, &recipe)
+	if len(recipe.Ingredients) < 2 {
+		t.Fatalf("recipe %s has %d ingredients, want at least 2", slug, len(recipe.Ingredients))
+	}
+	return recipe
 }
 
 func newUUID() string {

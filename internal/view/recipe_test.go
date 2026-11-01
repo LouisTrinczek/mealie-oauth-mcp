@@ -38,6 +38,21 @@ func TestTrimRecipe_Reductions(t *testing.T) {
 			want: `{"futureField":{"deep":{"x":1}},"recipeIngredient":[{"referenceId":"r","futureIngredientField":"kept","food":{"id":"f","name":"egg"}}],"recipeInstructions":[{"id":"s","text":"Mix.","ingredientReferences":[{"referenceId":"r"}]}]}`,
 		},
 		{
+			name: "ParsedIngredientDropsOriginalText",
+			in:   `{"recipeIngredient":[{"referenceId":"r","display":"1 tablespoon olive oil","originalText":"1 tbsp olive oil"}]}`,
+			want: `{"recipeIngredient":[{"referenceId":"r","display":"1 tablespoon olive oil"}]}`,
+		},
+		{
+			name: "UnparsedIngredientKeepsOriginalText",
+			in:   `{"recipeIngredient":[{"referenceId":"r","note":"salt","originalText":"a pinch of salt"}]}`,
+			want: `{"recipeIngredient":[{"referenceId":"r","note":"salt","originalText":"a pinch of salt"}]}`,
+		},
+		{
+			name: "EmptyDisplayKeepsOriginalText",
+			in:   `{"recipeIngredient":[{"referenceId":"r","display":"","originalText":"a pinch of salt"}]}`,
+			want: `{"recipeIngredient":[{"referenceId":"r","originalText":"a pinch of salt"}]}`,
+		},
+		{
 			name: "NonObjectEntriesAreLeftAlone",
 			in:   `{"tags":["quick"],"recipeIngredient":["2 eggs"]}`,
 			want: `{"tags":["quick"],"recipeIngredient":["2 eggs"]}`,
