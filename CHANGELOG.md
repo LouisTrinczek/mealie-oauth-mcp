@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.2.0...v0.3.0) (2026-11-01)
+
+
+### Features
+
+* **view:** leave out originalText for parsed ingredients and restore it on recipe update ([911996b](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/911996bc94be0b0dead774ca096d566ff4331db5)), closes [#12](https://github.com/LouisTrinczek/mealie-oauth-mcp/issues/12)
+* **view:** reduce food, unit and organizer objects to references in the trimmed recipe view ([c55e119](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/c55e119c5001835a3c3f77aafee96c0a57d25683)), closes [#11](https://github.com/LouisTrinczek/mealie-oauth-mcp/issues/11)
+* **view:** slim down the trimmed recipe view ([fd0b07e](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/fd0b07efe5f964b15a523a40b3f172006195a632))
+
 ## [0.2.0](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.1.0...v0.2.0) (2026-10-31)
 
 
