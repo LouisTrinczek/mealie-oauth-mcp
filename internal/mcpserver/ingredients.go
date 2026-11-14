@@ -60,7 +60,7 @@ func addIngredientsRead(srv *mcp.Server, d Deps) error {
 		{name: "list", help: "List foods, units or labels. Optional: search (foods only), page, perPage.", run: listIngredients},
 		{name: "get", help: "Read one food, unit or label. Needs id. Optional: full.", run: getIngredient},
 		{name: "empty", help: "List foods or labels that no recipe uses (not for units).", run: emptyIngredients},
-		{name: "parse", help: "Parse ingredient lines into structured ingredients. Needs ingredients (max 50).", run: parseIngredients},
+		{name: "parse", help: "Parse ingredient lines into structured ingredients matched to existing foods and units. Needs ingredients (max 50). A food or unit without an id has no match yet: look it up with list, and create it with ingredients_write if it really does not exist.", run: parseIngredients},
 	}, map[string][]any{"kind": ingredientKindNames})
 }
 
