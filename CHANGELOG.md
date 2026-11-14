@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.3.0...v0.3.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** bump Go to 1.27.4 for GO-2026-6859 ([900ed64](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/900ed64fdbaddb3d2a74a206aaeb63a1e1f80998))
+* **deps:** bump Go to 1.27.4 for GO-2026-6859 ([bc1c0e0](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/bc1c0e026f35592a92bb1df35cf4dda6c65ca72d))
+
 ## [0.3.0](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.2.0...v0.3.0) (2026-11-01)
 
 
