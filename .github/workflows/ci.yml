@@ -3,9 +3,13 @@ name: ci
 on:
   pull_request:
   push:
-    branches: ["**"]
+    branches: [main]
   schedule:
     - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
