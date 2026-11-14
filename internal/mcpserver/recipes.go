@@ -72,12 +72,12 @@ type recipesWriteInput struct {
 func addRecipesWrite(srv *mcp.Server, d Deps) error {
 	return addActionTool(srv, d, toolSpec{
 		name:      "recipes_write",
-		summary:   "Create, import, change, and delete recipes. Use recipes_read first to find slugs.",
+		summary:   "Create, import, change, and delete recipes. Use recipes_read first to find slugs. After adding a recipe, link every ingredient to a Mealie food and unit instead of leaving it as free text.",
 		openWorld: true,
 	}, []action[recipesWriteInput]{
 		{name: "create", help: "Create an empty recipe. Needs name. Returns its slug.", run: createRecipe},
-		{name: "import_url", help: "Import a recipe from a web page. Needs url. Optional: includeTags. Returns its slug.", run: importRecipe},
-		{name: "update", help: "Change recipe fields. Needs slug, fields.", run: updateRecipe},
+		{name: "import_url", help: "Import a recipe from a web page. Needs url. Optional: includeTags. Returns its slug. The ingredients arrive as free text; link them to foods and units with update afterwards.", run: importRecipe},
+		{name: "update", help: "Change recipe fields. Needs slug, fields. To link ingredients, run ingredients_read parse on the lines, then send the whole recipeIngredient list with quantity, unit {id, name}, food {id, name} and note per entry, keeping each referenceId. The note holds only extras such as preparation, never the amount, unit or food. For a food or unit parse did not match, look it up with ingredients_read list (search works for foods only); if it really does not exist, create it with ingredients_write and use the new id. Leave no ingredient unlinked.", run: updateRecipe},
 		{name: "duplicate", help: "Copy a recipe. Needs slug. Optional: name.", run: duplicateRecipe},
 		{name: "delete", help: "Delete a recipe. Needs slug.", run: deleteRecipe},
 		{name: "mark_made", help: "Set the recipe's last-made date only; it adds no timeline entry. Use history_write made_it to also log it on the timeline. Needs slug. Optional: timestamp.", run: markMadeAction},
