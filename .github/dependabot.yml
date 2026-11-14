@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: "fix(deps)"
+      prefix: "deps"
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -17,7 +17,7 @@ updates:
     schedule:
       interval: weekly
     commit-message:
-      prefix: "fix(deps)"
+      prefix: "deps"
   - package-ecosystem: docker-compose
     directories:
       - /test/integration
