@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.4.0...v0.4.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** bump distroless/static-debian13 from `25ac8f0` to `aafe993` ([#32](https://github.com/LouisTrinczek/mealie-oauth-mcp/issues/32)) ([90ba1a5](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/90ba1a5f08e4093aa14819654c425324d2924fc0))
+* **deps:** bump github.com/pressly/goose/v3 from 3.29.0 to 3.30.0 ([#34](https://github.com/LouisTrinczek/mealie-oauth-mcp/issues/34)) ([3c7cac4](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/3c7cac43f06912100ca1f81c1f56ee3f2b404b13))
+
 ## [0.4.0](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.3.0...v0.4.0) (2026-11-14)
 
 
