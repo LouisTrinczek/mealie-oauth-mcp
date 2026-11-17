@@ -40,7 +40,7 @@ python3 -I .claude/skills/mealie-release-check/openapi_diff.py "$W/$FROM.json" "
 
 `diff.txt` lists added and removed endpoints (flagging any that the `mealie_api` allowlist reaches), request and response field changes up to two levels deep, query parameter changes, and enum changes. Untyped responses that became typed are left out on purpose.
 
-Read the release notes and the diff from files, in pieces. If a hook cuts or replaces a tool's output, read smaller ranges or use the session's sandbox tool instead of guessing the rest. In the notes, skip `chore(l10n)`, dependency bumps and pure UI fixes. Always read "Things to know when upgrading" and the security fixes.
+Read the release notes and the diff from files, in pieces. If a hook cuts or replaces a tool's output, read smaller ranges or use the session's sandbox tool instead of guessing the rest. The notes catch what the schema cannot show: new values for free-text parameters such as `orderBy` or `queryFilter`, new permission checks, limits, and changed behavior behind an unchanged endpoint. Give every highlight, "Things to know when upgrading" bullet, `feat:` line and `fix:` line a verdict in step 3, finding or no action, before moving on. Only `chore`, `docs`, `dev` and dependency lines need none.
 
 When a change's meaning is unclear, read the PR (`gh pr view <n> -R mealie-recipes/mealie --json title,body,files`) or grep the source inside the image:
 
@@ -101,7 +101,7 @@ Mealie [v3.30.0](https://github.com/mealie-recipes/mealie/releases/tag/v3.30.0) 
 
 ## 5. Report
 
-End with one short table: finding, kind (bug, enhancement, security, housekeeping, no action), and the issue link or "already tracked #n". List no-action changes in one line each. Say which steps were skipped, for example when Docker was not running.
+End with one short table: finding, kind (bug, enhancement, security, housekeeping, no action), and the issue link or "already tracked #n". Then list the no-action changes from the diff and the notes, one line each with the Mealie PR number and the reason, so a skipped change can be checked. Say which steps were skipped, for example when Docker was not running.
 
 ## Common mistakes
 
