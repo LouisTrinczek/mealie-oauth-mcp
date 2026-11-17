@@ -72,9 +72,11 @@ Every run with a new `TO` also yields one housekeeping finding: bump `MEALIE_VER
 
 For every other bug or enhancement:
 
-1. Skip it if it is already tracked. Search by the Mealie PR number:
-   `gh issue list -R LouisTrinczek/mealie-oauth-mcp --label mealie-compat --state all --search "mealie-recipes/mealie/pull/<n> in:body"`.
-   For the housekeeping bump, search `"Pin integration tests to Mealie $TO" in:title`.
+1. Skip it if it is already tracked, open or closed. GitHub's search does not match URLs in issue bodies, so never dedupe with `--search`. Take one snapshot of all issues before creating any, and filter it locally:
+   `gh issue list -R LouisTrinczek/mealie-oauth-mcp --state all -L 1000 --json number,title,state,body > "$W/issues.json"`
+   - Finding: `jq -r '.[] | select(.body | contains("mealie-recipes/mealie/pull/<n>)")) | "#\(.number) \(.state) \(.title)"' "$W/issues.json"`. A hit for the same change means tracked. A hit for another change from the same PR does not.
+   - Housekeeping: `jq -r --arg t "Pin integration tests to Mealie $TO" '.[] | select(.title == $t) | .number' "$W/issues.json"`.
+   - Issues created earlier in this run count as tracked too.
 2. Create the label once: `gh label create mealie-compat -R LouisTrinczek/mealie-oauth-mcp --color 0E8A16 --description "Follow-up to a Mealie release" 2>/dev/null || true`.
 3. Create the issue with `gh issue create -R LouisTrinczek/mealie-oauth-mcp --label mealie-compat --label <bug|enhancement> --title "<title>" --body-file "$W/issue-<slug>.md"`.
 
