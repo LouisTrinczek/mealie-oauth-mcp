@@ -712,29 +712,34 @@ func TestMealplansWrite_WeeklyUpdate(t *testing.T) {
 		{"v3.30.0", "endDate", false}, {"v3.30.0", "end_date", false}, {"v3.30.0", "end_date", true},
 	} {
 		t.Run(tc.version+"/"+tc.key, func(t *testing.T) {
-			api := newFakeMealie(t)
-			path := mealplansEndpoint + "/5"
-			api.on("GET", path, 200, `{"id":5,"date":"2026-12-28","endDate":"2027-01-03"}`)
-			api.on("PUT", path, 200, `{"id":5,"date":"2026-12-29","endDate":"2027-01-04"}`)
-			d := toolDeps(t, api, &fakeTokens{})
-			d.MealieVersion = tc.version
-			fields := map[string]any{"date": "2026-12-29", tc.key: "2027-01-04"}
-			if tc.conflict {
-				fields["endDate"] = "2027-01-03"
-			}
-			res := callTool(t, connectInMemory(t, d), "mealplans_write", map[string]any{"action": "update", "id": "5", "fields": fields})
-			seen := api.requests()
-			if tc.version == "v3.29.0" || tc.conflict {
-				want := "v3.30.0"
-				if tc.conflict {
-					want = "conflict"
-				}
-				if !res.IsError || !strings.Contains(resultText(t, res), want) || len(seen) != 0 {
-					t.Fatalf("want %q and no requests, got %s, %v", want, resultText(t, res), seen)
-				}
-			} else if res.IsError || len(seen) != 2 || seen[1].Body != `{"date":"2026-12-29","endDate":"2027-01-04","id":5}` {
-				t.Fatalf("result %s, requests %v", resultText(t, res), seen)
-			}
+			checkWeeklyMealplanUpdate(t, tc.version, tc.key, tc.conflict)
 		})
+	}
+}
+
+func checkWeeklyMealplanUpdate(t *testing.T, version, key string, conflict bool) {
+	t.Helper()
+	api := newFakeMealie(t)
+	path := mealplansEndpoint + "/5"
+	api.on("GET", path, 200, `{"id":5,"date":"2026-12-28","endDate":"2027-01-03"}`)
+	api.on("PUT", path, 200, `{"id":5,"date":"2026-12-29","endDate":"2027-01-04"}`)
+	d := toolDeps(t, api, &fakeTokens{})
+	d.MealieVersion = version
+	fields := map[string]any{"date": "2026-12-29", key: "2027-01-04"}
+	if conflict {
+		fields["endDate"] = "2027-01-03"
+	}
+	res := callTool(t, connectInMemory(t, d), "mealplans_write", map[string]any{"action": "update", "id": "5", "fields": fields})
+	seen := api.requests()
+	if version == "v3.29.0" || conflict {
+		want := "v3.30.0"
+		if conflict {
+			want = "conflict"
+		}
+		if !res.IsError || !strings.Contains(resultText(t, res), want) || len(seen) != 0 {
+			t.Fatalf("want %q and no requests, got %s, %v", want, resultText(t, res), seen)
+		}
+	} else if res.IsError || len(seen) != 2 || seen[1].Body != `{"date":"2026-12-29","endDate":"2027-01-04","id":5}` {
+		t.Fatalf("result %s, requests %v", resultText(t, res), seen)
 	}
 }

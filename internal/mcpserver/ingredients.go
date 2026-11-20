@@ -32,10 +32,12 @@ type ingredientKind struct {
 	mergeTo         string
 }
 
+const ingredientMaintenanceMinVersion = "v3.29.0"
+
 var ingredientKinds = map[string]ingredientKind{
-	foodsKind:  {emptyMinVersion: "v3.29.0", base: "/api/foods", fields: []string{"id", "name", "pluralName", "label"}, mergeMethod: http.MethodPut, mergeFrom: "fromFood", mergeTo: "toFood"},
+	foodsKind:  {emptyMinVersion: ingredientMaintenanceMinVersion, base: "/api/foods", fields: []string{"id", "name", "pluralName", "label"}, mergeMethod: http.MethodPut, mergeFrom: "fromFood", mergeTo: "toFood"},
 	unitsKind:  {base: "/api/units", fields: []string{"id", "name", "abbreviation"}, mergeMethod: http.MethodPut, mergeFrom: "fromUnit", mergeTo: "toUnit"},
-	labelsKind: {emptyMinVersion: "v3.29.0", mergeMinVersion: "v3.29.0", base: "/api/groups/labels", fields: []string{"id", "name", "color"}, mergeMethod: http.MethodPost, mergeFrom: "fromId", mergeTo: "toId"},
+	labelsKind: {emptyMinVersion: ingredientMaintenanceMinVersion, mergeMinVersion: ingredientMaintenanceMinVersion, base: "/api/groups/labels", fields: []string{"id", "name", "color"}, mergeMethod: http.MethodPost, mergeFrom: "fromId", mergeTo: "toId"},
 }
 
 func notApplicable(field, kind string) error {
