@@ -647,7 +647,7 @@ func TestRecipesTools_DescribeIDsAndMarkMade(t *testing.T) {
 }
 
 func TestRecipesRead_TotalTimeSort(t *testing.T) {
-	for _, version := range []string{"v3.29.0", "v3.30.0"} {
+	for _, version := range []string{"v3.28.0", "v3.29.0", "v3.30.0"} {
 		for _, direction := range []string{"asc", "desc"} {
 			t.Run(version+"/"+direction, func(t *testing.T) {
 				api := newFakeMealie(t)
@@ -656,8 +656,8 @@ func TestRecipesRead_TotalTimeSort(t *testing.T) {
 				d.MealieVersion = version
 				res := callTool(t, connectInMemory(t, d), "recipes_read", map[string]any{"action": "search", "orderBy": "total_time_seconds", "orderDirection": direction, "page": 2})
 				seen := api.requests()
-				if version == "v3.29.0" {
-					requireToolError(t, res, "search by total_time_seconds requires Mealie v3.30.0 or later.")
+				if version == "v3.28.0" {
+					requireToolError(t, res, "search by total_time_seconds requires Mealie v3.29.0 or later.")
 					if len(seen) != 0 {
 						t.Fatalf("unexpected upstream requests: %v", seen)
 					}

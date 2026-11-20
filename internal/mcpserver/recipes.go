@@ -34,7 +34,7 @@ type recipesReadInput struct {
 	Tools          []string `json:"tools,omitempty" jsonschema:"search: tool slugs or ids. suggest: tool ids (organizers_read lists them)."`
 	Foods          []string `json:"foods,omitempty" jsonschema:"search, suggest: food ids (foods have no slugs; ingredients_read lists them)."`
 	RequireAll     bool     `json:"requireAll,omitempty" jsonschema:"search: require all given categories, tags, tools and foods instead of any."`
-	OrderBy        string   `json:"orderBy,omitempty" jsonschema:"search: e.g. name, createdAt, rating, lastMade, random, total_time_seconds (Mealie v3.30.0+)."`
+	OrderBy        string   `json:"orderBy,omitempty" jsonschema:"search: e.g. name, createdAt, rating, lastMade, random, total_time_seconds (Mealie v3.29.0+)."`
 	OrderDirection string   `json:"orderDirection,omitempty" jsonschema:"search: sort direction."`
 	Page           int      `json:"page,omitempty" jsonschema:"search: page number, starting at 1."`
 	PerPage        int      `json:"perPage,omitempty" jsonschema:"search: results per page (default 20, max 100)."`
@@ -346,7 +346,7 @@ func getRecipeRaw(ctx context.Context, s *session, slug string) (json.RawMessage
 	return s.call(ctx, http.MethodGet, path, nil, nil)
 }
 
-const recipeTotalTimeSortMinVersion = "v3.30.0"
+const recipeTotalTimeSortMinVersion = "v3.29.0"
 
 func searchRecipes(ctx context.Context, s *session, in recipesReadInput) (any, error) {
 	query := pageQuery(in.Page, in.PerPage)

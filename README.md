@@ -200,9 +200,9 @@ Some named actions require newer Mealie releases.
 - Mealie v3.28.0+ for `recipes_write add_asset_url`.
 - Mealie v3.29.0+ for organizer `empty` and `merge` on tools, ingredient
   `empty` on foods and labels, and ingredient `merge` on labels.
-- Mealie v3.30.0+ for recipe search ordered by `total_time_seconds` and for
-  weekly meal-plan entries. A weekly entry has an `endDate` six calendar
-  days after its start date.
+- Mealie v3.29.0+ for recipe search ordered by `total_time_seconds`.
+- Mealie v3.30.0+ for weekly meal-plan entries. A weekly entry has an
+  `endDate` six calendar days after its start date.
 
 Tool names, action names, and argument meanings are a public interface.
 Breaking changes need a major version or a deprecation period; see the
