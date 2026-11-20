@@ -23,17 +23,19 @@ const (
 var ingredientKindNames = []any{foodsKind, unitsKind, labelsKind}
 
 type ingredientKind struct {
-	base        string
-	fields      []string
-	mergeMethod string
-	mergeFrom   string
-	mergeTo     string
+	emptyMinVersion string
+	mergeMinVersion string
+	base            string
+	fields          []string
+	mergeMethod     string
+	mergeFrom       string
+	mergeTo         string
 }
 
 var ingredientKinds = map[string]ingredientKind{
-	foodsKind:  {base: "/api/foods", fields: []string{"id", "name", "pluralName", "label"}, mergeMethod: http.MethodPut, mergeFrom: "fromFood", mergeTo: "toFood"},
+	foodsKind:  {emptyMinVersion: "v3.29.0", base: "/api/foods", fields: []string{"id", "name", "pluralName", "label"}, mergeMethod: http.MethodPut, mergeFrom: "fromFood", mergeTo: "toFood"},
 	unitsKind:  {base: "/api/units", fields: []string{"id", "name", "abbreviation"}, mergeMethod: http.MethodPut, mergeFrom: "fromUnit", mergeTo: "toUnit"},
-	labelsKind: {base: "/api/groups/labels", fields: []string{"id", "name", "color"}, mergeMethod: http.MethodPost, mergeFrom: "fromId", mergeTo: "toId"},
+	labelsKind: {emptyMinVersion: "v3.29.0", mergeMinVersion: "v3.29.0", base: "/api/groups/labels", fields: []string{"id", "name", "color"}, mergeMethod: http.MethodPost, mergeFrom: "fromId", mergeTo: "toId"},
 }
 
 func notApplicable(field, kind string) error {
@@ -59,7 +61,7 @@ func addIngredientsRead(srv *mcp.Server, d Deps) error {
 	}, []action[ingredientsReadInput]{
 		{name: "list", help: "List foods, units or labels. Optional: search (foods only), page, perPage.", run: listIngredients},
 		{name: "get", help: "Read one food, unit or label. Needs id. Optional: full.", run: getIngredient},
-		{name: "empty", help: "List foods or labels that no recipe uses (not for units).", run: emptyIngredients},
+		{name: "empty", help: "List foods or labels that no recipe uses (not for units). Requires Mealie v3.29.0+.", run: emptyIngredients},
 		{name: "parse", help: "Parse ingredient lines into structured ingredients matched to existing foods and units. Needs ingredients (max 50). A food or unit without an id has no match yet: look it up with list, and create it with ingredients_write if it really does not exist.", run: parseIngredients},
 	}, map[string][]any{"kind": ingredientKindNames})
 }
@@ -109,6 +111,9 @@ func emptyIngredients(ctx context.Context, s *session, in ingredientsReadInput) 
 		return nil, toolFailure(`Action "empty" does not apply to units.`)
 	}
 	kind := ingredientKinds[in.Kind]
+	if err := s.requireMealie("empty for "+in.Kind, kind.emptyMinVersion); err != nil {
+		return nil, err
+	}
 	raw, err := s.call(ctx, http.MethodGet, kind.base+"/empty", nil, nil)
 	if err != nil {
 		return nil, err
@@ -157,7 +162,7 @@ func addIngredientsWrite(srv *mcp.Server, d Deps) error {
 		{name: "create", help: "Create a food, unit or label. Needs name. Optional: pluralName (foods, units), abbreviation (units), color (labels).", run: createIngredient},
 		{name: "update", help: "Change a food, unit or label. Needs id, fields.", run: updateIngredient},
 		{name: "delete", help: "Delete a food, unit or label. Needs id.", run: deleteIngredient},
-		{name: "merge", help: "Move everything from one entry into another and delete the first. Needs fromId, toId.", run: mergeIngredients},
+		{name: "merge", help: "Move everything from one entry into another and delete the first. Requires Mealie v3.29.0+ for labels. Needs fromId, toId.", run: mergeIngredients},
 	}, map[string][]any{"kind": ingredientKindNames})
 }
 
@@ -211,6 +216,9 @@ func mergeIngredients(ctx context.Context, s *session, in ingredientsWriteInput)
 		}
 	}
 	kind := ingredientKinds[in.Kind]
+	if err := s.requireMealie("merge for "+in.Kind, kind.mergeMinVersion); err != nil {
+		return nil, err
+	}
 	body := map[string]string{kind.mergeFrom: in.FromID, kind.mergeTo: in.ToID}
 	if _, err := s.call(ctx, kind.mergeMethod, kind.base+"/merge", nil, body); err != nil {
 		return nil, err

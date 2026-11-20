@@ -119,7 +119,8 @@ func (a *App) wire(ctx context.Context, keyring *tokencrypt.Keyring, version str
 		retryDelay:   startupRetryDelay,
 		reachTimeout: startupReachLimit,
 	}
-	if err := check.run(ctx); err != nil {
+	mealieVersion, err := check.run(ctx)
+	if err != nil {
 		return err
 	}
 	st, err := store.Open(ctx, a.cfg.DataDir, a.logger)
@@ -130,13 +131,14 @@ func (a *App) wire(ctx context.Context, keyring *tokencrypt.Keyring, version str
 	auditLog := audit.New(a.logger, a.metrics)
 	sessions := a.sessionManager(keyring, auditLog)
 	tools, err := buildTools(mcpserver.Deps{
-		Tokens:  sessions,
-		Mealie:  a.mealie,
-		Clock:   a.now,
-		Version: version,
-		Logger:  a.logger,
-		Metrics: a.metrics,
-		Tracing: a.tracing,
+		Tokens:        sessions,
+		Mealie:        a.mealie,
+		Clock:         a.now,
+		Version:       version,
+		MealieVersion: mealieVersion,
+		Logger:        a.logger,
+		Metrics:       a.metrics,
+		Tracing:       a.tracing,
 	})
 	if err != nil {
 		return errors.Join(fmt.Errorf("building MCP tools: %w", err), st.Close())
@@ -405,21 +407,21 @@ type startupCheck struct {
 	reachTimeout time.Duration
 }
 
-func (c startupCheck) run(ctx context.Context) error {
+func (c startupCheck) run(ctx context.Context) (string, error) {
 	about, err := c.about(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !about.EnableOIDC {
-		return incompatibleMealie("Mealie has OIDC disabled; this server requires OIDC (see README)")
+		return "", incompatibleMealie("Mealie has OIDC disabled; this server requires OIDC (see README)")
 	}
 	if err := c.checkVersion(ctx, about.Version); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := c.mealie.NativeConfig(ctx); err != nil {
-		return fmt.Errorf("reading Mealie's native OIDC config: %w", err)
+		return "", fmt.Errorf("reading Mealie's native OIDC config: %w", err)
 	}
-	return nil
+	return about.Version, nil
 }
 
 func (c startupCheck) about(ctx context.Context) (mealie.About, error) {

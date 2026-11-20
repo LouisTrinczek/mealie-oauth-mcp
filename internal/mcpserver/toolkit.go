@@ -39,11 +39,12 @@ const (
 )
 
 type session struct {
-	tokens TokenSource
-	mealie MealieClient
-	clock  func() time.Time
-	info   *auth.TokenInfo
-	token  secret.Secret
+	mealieVersion string
+	tokens        TokenSource
+	mealie        MealieClient
+	clock         func() time.Time
+	info          *auth.TokenInfo
+	token         secret.Secret
 }
 
 func openSession(ctx context.Context, d Deps, req *mcp.CallToolRequest) (*session, error) {
@@ -52,7 +53,19 @@ func openSession(ctx context.Context, d Deps, req *mcp.CallToolRequest) (*sessio
 	if err != nil {
 		return nil, tokenFailure(err)
 	}
-	return &session{tokens: d.Tokens, mealie: d.Mealie, clock: d.Clock, info: info, token: tok}, nil
+	return &session{mealieVersion: d.MealieVersion, tokens: d.Tokens, mealie: d.Mealie, clock: d.Clock, info: info, token: tok}, nil
+}
+
+func (s *session) supportsMealie(minimum string) bool {
+	order, err := mealie.CompareVersions(s.mealieVersion, minimum)
+	return err == nil && order >= 0
+}
+
+func (s *session) requireMealie(action, minimum string) error {
+	if minimum == "" || s.supportsMealie(minimum) {
+		return nil
+	}
+	return toolFailure(fmt.Sprintf("%s requires Mealie %s or later.", action, minimum))
 }
 
 func (s *session) call(ctx context.Context, method, path string, q url.Values, body any) (json.RawMessage, error) {

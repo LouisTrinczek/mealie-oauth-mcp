@@ -4,6 +4,35 @@ Thanks for helping. This guide covers setup, tests, conventions, and how to
 add a tool. Please read the [tool stability policy](#tool-stability-policy)
 before you change an existing tool.
 
+## Mealie version compatibility
+
+The MCP server must support every Mealie release from v3.25.0 onward,
+including future releases. This applies to the whole server, including
+authentication and every existing tool and action on the versions that
+support it.
+When a feature depends on an upstream API change, identify the first Mealie
+version that supports it and gate the feature using the version already
+detected at startup. Document that version in the README and relevant tool
+help.
+
+Preserve existing tool results, validation, and side effects on older
+supported versions. Keep the existing request path available. If a caller
+explicitly requests a feature the server cannot support, report the required
+Mealie version before making the upstream request. When the version cannot
+be determined, keep the baseline behavior available and leave version-gated
+features disabled.
+
+Before removing support for a Mealie release or withdrawing existing tool
+behavior on a supported release, announce the affected versions and behavior
+in the release notes. Document the migration path and the earliest removal
+release or date. Keep the existing behavior working throughout the announced
+deprecation period. This also applies to removals in a major MCP release.
+
+Test the affected behavior below and at the feature's version threshold.
+Cover both the feature on the newer server and regression risks on the
+older server, including writes that could appear to succeed after dropping
+an unsupported field.
+
 ## Getting started
 
 You need Go 1.27 or later and Docker.

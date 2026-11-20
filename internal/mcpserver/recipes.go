@@ -82,7 +82,7 @@ func addRecipesWrite(srv *mcp.Server, d Deps) error {
 		{name: "delete", help: "Delete a recipe. Needs slug.", run: deleteRecipe},
 		{name: "mark_made", help: "Set the recipe's last-made date only; it adds no timeline entry. Use history_write made_it to also log it on the timeline. Needs slug. Optional: timestamp.", run: markMadeAction},
 		{name: "set_image_url", help: "Set a recipe image from a URL. Needs slug, url.", run: setRecipeImage},
-		{name: "add_asset_url", help: "Attach a file from a URL to a recipe. Needs slug, url.", run: addRecipeAsset},
+		{name: "add_asset_url", help: "Attach a file from a URL to a recipe. Requires Mealie v3.28.0+. Needs slug, url.", run: addRecipeAsset},
 		{name: "share", help: "Create a share link. Needs slug. Optional: expiresAt.", run: shareRecipe},
 		{name: "bulk_tag", help: "Add tags to many recipes. Needs slugs, tags.", run: bulkTag},
 		{name: "bulk_categorize", help: "Add categories to many recipes. Needs slugs, categories.", run: bulkCategorize},
@@ -203,7 +203,12 @@ func setRecipeImage(ctx context.Context, s *session, in recipesWriteInput) (any,
 	return ok(nil), nil
 }
 
+const recipeAssetURLMinVersion = "v3.28.0"
+
 func addRecipeAsset(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := s.requireMealie("add_asset_url", recipeAssetURLMinVersion); err != nil {
+		return nil, err
+	}
 	raw, err := postRecipeURL(ctx, s, "add_asset_url", "/assets/url", in)
 	if err != nil {
 		return nil, err

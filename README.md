@@ -191,6 +191,16 @@ household and group settings, AI-provider, iCal-feed, recipe-action, export,
 and media endpoints. It is an allowlist, so endpoints added in future Mealie
 releases stay blocked until they are added on purpose.
 
+Raw `mealie_api` callers choose endpoints, parameters, and fields supported
+by the connected Mealie version. Mealie may silently ignore unsupported
+write fields. Use a named action when available for version checks.
+
+Some named actions require newer Mealie releases.
+
+- Mealie v3.28.0+ for `recipes_write add_asset_url`.
+- Mealie v3.29.0+ for organizer `empty` and `merge` on tools, ingredient
+  `empty` on foods and labels, and ingredient `merge` on labels.
+
 Tool names, action names, and argument meanings are a public interface.
 Breaking changes need a major version or a deprecation period; see the
 [tool stability policy](CONTRIBUTING.md#tool-stability-policy).

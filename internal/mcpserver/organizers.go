@@ -18,15 +18,17 @@ const cookbooksKind = "cookbooks"
 var organizerKindNames = []any{cookbooksKind, "categories", "tags", "tools"}
 
 type organizerKind struct {
-	base   string
-	fields []string
+	emptyMinVersion string
+	mergeMinVersion string
+	base            string
+	fields          []string
 }
 
 var organizerKinds = map[string]organizerKind{
 	cookbooksKind: {base: "/api/households/cookbooks", fields: []string{"id", "slug", "name", "description"}},
 	"categories":  {base: "/api/organizers/categories", fields: []string{"id", "slug", "name"}},
 	"tags":        {base: "/api/organizers/tags", fields: []string{"id", "slug", "name"}},
-	"tools":       {base: "/api/organizers/tools", fields: []string{"id", "slug", "name"}},
+	"tools":       {emptyMinVersion: "v3.29.0", mergeMinVersion: "v3.29.0", base: "/api/organizers/tools", fields: []string{"id", "slug", "name"}},
 }
 
 func notForCookbooks(kind, action string) error {
@@ -55,7 +57,7 @@ func addOrganizersRead(srv *mcp.Server, d Deps) error {
 	}, []action[organizersReadInput]{
 		{name: "list", help: "List organizers of a kind. Optional: search (not for cookbooks), page, perPage.", run: listOrganizers},
 		{name: "get", help: "Read one organizer; linked recipes are listed by name. Needs slug or id. Optional: full.", run: getOrganizer},
-		{name: "empty", help: "List organizers that no recipe uses (not for cookbooks).", run: emptyOrganizers},
+		{name: "empty", help: "List organizers that no recipe uses (not for cookbooks). Requires Mealie v3.29.0+ for tools.", run: emptyOrganizers},
 	}, map[string][]any{"kind": organizerKindNames})
 }
 
@@ -111,6 +113,9 @@ func emptyOrganizers(ctx context.Context, s *session, in organizersReadInput) (a
 		return nil, err
 	}
 	kind := organizerKinds[in.Kind]
+	if err := s.requireMealie("empty for "+in.Kind, kind.emptyMinVersion); err != nil {
+		return nil, err
+	}
 	raw, err := s.call(ctx, http.MethodGet, kind.base+"/empty", nil, nil)
 	if err != nil {
 		return nil, err
@@ -138,7 +143,7 @@ func addOrganizersWrite(srv *mcp.Server, d Deps) error {
 		{name: "create", help: "Create an organizer. Needs name. Cookbooks also take description, queryFilter.", run: createOrganizer},
 		{name: "update", help: "Change an organizer. Needs id, fields.", run: updateOrganizer},
 		{name: "delete", help: "Delete an organizer. Needs id.", run: deleteOrganizer},
-		{name: "merge", help: "Move everything from one organizer into another and delete the first (not for cookbooks). Needs fromId, toId.", run: mergeOrganizers},
+		{name: "merge", help: "Move everything from one organizer into another and delete the first (not for cookbooks). Requires Mealie v3.29.0+ for tools. Needs fromId, toId.", run: mergeOrganizers},
 	}, map[string][]any{"kind": organizerKindNames})
 }
 
@@ -192,8 +197,12 @@ func mergeOrganizers(ctx context.Context, s *session, in organizersWriteInput) (
 	if err := need("merge", "toId", in.ToID); err != nil {
 		return nil, err
 	}
+	kind := organizerKinds[in.Kind]
+	if err := s.requireMealie("merge for "+in.Kind, kind.mergeMinVersion); err != nil {
+		return nil, err
+	}
 	body := map[string]string{"fromId": in.FromID, "toId": in.ToID}
-	if _, err := s.call(ctx, http.MethodPost, organizerKinds[in.Kind].base+"/merge", nil, body); err != nil {
+	if _, err := s.call(ctx, http.MethodPost, kind.base+"/merge", nil, body); err != nil {
 		return nil, err
 	}
 	return ok(nil), nil
