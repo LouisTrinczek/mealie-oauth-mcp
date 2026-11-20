@@ -987,6 +987,9 @@ func TestApp_ToolsGetTheAppLogger(t *testing.T) {
 		t.Fatalf("newApp: %v", err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
+	if count := len(fake.seenUserAgents()); count != 2 {
+		t.Errorf("startup made %d Mealie requests, want one about and one native config request", count)
+	}
 	if got.MealieVersion != "v3.29.0" || got.Version != "test" {
 		t.Errorf("unexpected tool versions: Mealie %q, MCP %q", got.MealieVersion, got.Version)
 	}

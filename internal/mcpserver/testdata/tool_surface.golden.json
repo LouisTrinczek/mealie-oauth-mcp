@@ -360,7 +360,10 @@
           "type": "string"
         },
         "endDate": {
-          "type": "string"
+          "type": [
+            "null",
+            "string"
+          ]
         },
         "entries": {
           "type": [
@@ -374,7 +377,10 @@
                 "type": "string"
               },
               "endDate": {
-                "type": "string"
+                "type": [
+                  "null",
+                  "string"
+                ]
               },
               "entryType": {
                 "type": "string",

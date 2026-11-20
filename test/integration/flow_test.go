@@ -287,7 +287,11 @@ func (f *flow) renewMealieToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("closing session database: %v", err)
+		}
+	}()
 	session := f.connect(t)
 	dueAt := time.Now().Add(5 * time.Minute).Unix()
 	result, err := db.ExecContext(t.Context(), "UPDATE sessions SET mealie_token_expires_at = ?", dueAt)

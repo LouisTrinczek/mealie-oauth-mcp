@@ -5,8 +5,10 @@ import (
 	"testing"
 )
 
+type actionVersionCase struct{ tool, action, kind, method, path, minimum, previous string }
+
 func TestExistingActionVersionGates(t *testing.T) {
-	for _, tc := range []struct{ tool, action, kind, method, path, minimum, previous string }{
+	for _, tc := range []actionVersionCase{
 		{"recipes_write", "add_asset_url", "", "POST", "/api/recipes/example/assets/url", "v3.28.0", "v3.27.0"},
 		{"organizers_read", "empty", "tools", "GET", "/api/organizers/tools/empty", "v3.29.0", "v3.28.0"},
 		{"organizers_write", "merge", "tools", "POST", "/api/organizers/tools/merge", "v3.29.0", "v3.28.0"},
@@ -16,37 +18,42 @@ func TestExistingActionVersionGates(t *testing.T) {
 	} {
 		for _, version := range []string{tc.previous, tc.minimum, "unknown"} {
 			t.Run(tc.tool+"/"+tc.action+"/"+tc.kind+"/"+version, func(t *testing.T) {
-				api := newFakeMealie(t)
-				body := "{}"
-				if tc.method == "GET" {
-					body = "[]"
-				}
-				api.on(tc.method, tc.path, 200, body)
-				d := toolDeps(t, api, &fakeTokens{})
-				d.MealieVersion = version
-				args := map[string]any{"action": tc.action}
-				if tc.kind != "" {
-					args["kind"] = tc.kind
-				}
-				if tc.action == "merge" {
-					args["fromId"] = "from"
-					args["toId"] = "to"
-				}
-				if tc.action == "add_asset_url" {
-					args["slug"] = "example"
-					args["url"] = "https://example.com/image.png"
-				}
-				res := callTool(t, connectInMemory(t, d), tc.tool, args)
-				requests := api.requests()
-				if version == tc.minimum {
-					if res.IsError || len(requests) != 1 {
-						t.Fatalf("result %s, requests %v", resultText(t, res), requests)
-					}
-				} else if !res.IsError || !strings.Contains(resultText(t, res), tc.minimum) || len(requests) != 0 {
-					t.Fatalf("want version error and no requests, got %s, requests %v", resultText(t, res), requests)
-				}
+				checkExistingActionVersion(t, tc, version)
 			})
 		}
+	}
+}
+
+func checkExistingActionVersion(t *testing.T, tc actionVersionCase, version string) {
+	t.Helper()
+	api := newFakeMealie(t)
+	body := "{}"
+	if tc.method == "GET" {
+		body = "[]"
+	}
+	api.on(tc.method, tc.path, 200, body)
+	d := toolDeps(t, api, &fakeTokens{})
+	d.MealieVersion = version
+	args := map[string]any{"action": tc.action}
+	if tc.kind != "" {
+		args["kind"] = tc.kind
+	}
+	if tc.action == "merge" {
+		args["fromId"] = "from"
+		args["toId"] = "to"
+	}
+	if tc.action == "add_asset_url" {
+		args["slug"] = "example"
+		args["url"] = "https://example.com/image.png"
+	}
+	res := callTool(t, connectInMemory(t, d), tc.tool, args)
+	requests := api.requests()
+	if version == tc.minimum {
+		if res.IsError || len(requests) != 1 {
+			t.Fatalf("result %s, requests %v", resultText(t, res), requests)
+		}
+	} else if !res.IsError || !strings.Contains(resultText(t, res), tc.minimum) || len(requests) != 0 {
+		t.Fatalf("want version error and no requests, got %s, requests %v", resultText(t, res), requests)
 	}
 }
 

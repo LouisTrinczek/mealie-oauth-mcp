@@ -647,49 +647,59 @@ func TestMealplansRead_WeeklyEntries(t *testing.T) {
 
 func TestMealplansWrite_WeeklyEntries(t *testing.T) {
 	for _, action := range []string{"create", "bulk_create", "random"} {
-		for _, tc := range []struct{ version, end, wantErr string }{
-			{"v3.30.0", "2027-01-04", ""},
-			{"v3.30.0", "", ""},
-			{"v3.30.0", "tomorrow", "YYYY-MM-DD"},
-			{"v3.30.0", "2027-01-03", "six days"},
-			{"v3.29.0", "2027-01-04", "v3.30.0"},
+		for _, tc := range []struct {
+			version, end, wantErr string
+			omit                  bool
+		}{
+			{"v3.30.0", "2027-01-04", "", false},
+			{"v3.25.0", "", "", true},
+			{"unknown", "", "", true},
+			{"v3.30.0", "", "YYYY-MM-DD", false},
+			{"v3.30.0", "tomorrow", "YYYY-MM-DD", false},
+			{"v3.30.0", "2027-01-03", "six days", false},
+			{"v3.29.0", "2027-01-04", "v3.30.0", false},
 		} {
 			t.Run(action+"/"+tc.version+"/"+tc.end, func(t *testing.T) {
-				api := newFakeMealie(t)
-				path := mealplansEndpoint
-				if action == "random" {
-					path += "/random"
-				}
-				api.on("POST", path, 201, entryBodyJSON)
-				d := toolDeps(t, api, &fakeTokens{})
-				d.MealieVersion = tc.version
-				args := map[string]any{"action": action, "date": "2026-12-29"}
-				if action != "random" {
-					args["title"] = "Soup"
-				}
-				if tc.end != "" {
-					args["endDate"] = tc.end
-				}
-				if action == "bulk_create" {
-					delete(args, "action")
-					entries := []map[string]any{args}
-					if tc.wantErr != "" {
-						entries = append([]map[string]any{{"date": "2026-12-29", "slug": "needs-lookup"}}, entries...)
-					}
-					args = map[string]any{"action": action, "entries": entries}
-				}
-				res := callTool(t, connectInMemory(t, d), "mealplans_write", args)
-				seen := api.requests()
-				if tc.wantErr != "" {
-					if !res.IsError || !strings.Contains(resultText(t, res), tc.wantErr) || len(seen) != 0 {
-						t.Fatalf("want %q and no requests, got %s, %v", tc.wantErr, resultText(t, res), seen)
-					}
-				} else if res.IsError || len(seen) != 1 || strings.Contains(seen[0].Body, `"endDate"`) != (tc.end != "") ||
-					(tc.end != "" && !strings.Contains(seen[0].Body, `"endDate":"2027-01-04"`)) {
-					t.Fatalf("result %s, requests %v", resultText(t, res), seen)
-				}
+				checkWeeklyMealplanWrite(t, action, tc.version, tc.end, tc.wantErr, tc.omit)
 			})
 		}
+	}
+}
+
+func checkWeeklyMealplanWrite(t *testing.T, action, version, end, wantErr string, omit bool) {
+	t.Helper()
+	api := newFakeMealie(t)
+	path := mealplansEndpoint
+	if action == "random" {
+		path += "/random"
+	}
+	api.on("POST", path, 201, entryBodyJSON)
+	d := toolDeps(t, api, &fakeTokens{})
+	d.MealieVersion = version
+	args := map[string]any{"action": action, "date": "2026-12-29"}
+	if action != "random" {
+		args["title"] = "Soup"
+	}
+	if !omit {
+		args["endDate"] = end
+	}
+	if action == "bulk_create" {
+		delete(args, "action")
+		entries := []map[string]any{args}
+		if wantErr != "" {
+			entries = append([]map[string]any{{"date": "2026-12-29", "slug": "needs-lookup"}}, entries...)
+		}
+		args = map[string]any{"action": action, "entries": entries}
+	}
+	res := callTool(t, connectInMemory(t, d), "mealplans_write", args)
+	seen := api.requests()
+	if wantErr != "" {
+		if !res.IsError || !strings.Contains(resultText(t, res), wantErr) || len(seen) != 0 {
+			t.Fatalf("want %q and no requests, got %s, %v", wantErr, resultText(t, res), seen)
+		}
+	} else if res.IsError || len(seen) != 1 || strings.Contains(seen[0].Body, `"endDate"`) != !omit ||
+		(!omit && !strings.Contains(seen[0].Body, `"endDate":"2027-01-04"`)) {
+		t.Fatalf("result %s, requests %v", resultText(t, res), seen)
 	}
 }
 

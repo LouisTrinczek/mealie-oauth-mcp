@@ -52,17 +52,17 @@ func addMealplansRead(srv *mcp.Server, d Deps) error {
 }
 
 type mealplanEntry struct {
-	EndDate   string `json:"endDate,omitempty" jsonschema:"Weekly entry end date, six days after date (Mealie v3.30.0+)."`
-	Date      string `json:"date,omitempty" jsonschema:"Date, YYYY-MM-DD."`
-	EntryType string `json:"entryType,omitempty" jsonschema:"Meal type: breakfast, lunch, dinner, side, snack, drink or dessert (default dinner)."`
-	Slug      string `json:"slug,omitempty" jsonschema:"Recipe slug or id to plan; use this or title."`
-	Title     string `json:"title,omitempty" jsonschema:"Free-text meal name when there is no recipe."`
-	Text      string `json:"text,omitempty" jsonschema:"Extra note for the entry."`
+	EndDate   *string `json:"endDate,omitempty" jsonschema:"Weekly entry end date, six days after date (Mealie v3.30.0+)."`
+	Date      string  `json:"date,omitempty" jsonschema:"Date, YYYY-MM-DD."`
+	EntryType string  `json:"entryType,omitempty" jsonschema:"Meal type: breakfast, lunch, dinner, side, snack, drink or dessert (default dinner)."`
+	Slug      string  `json:"slug,omitempty" jsonschema:"Recipe slug or id to plan; use this or title."`
+	Title     string  `json:"title,omitempty" jsonschema:"Free-text meal name when there is no recipe."`
+	Text      string  `json:"text,omitempty" jsonschema:"Extra note for the entry."`
 }
 
 type mealplansWriteInput struct {
 	actionField
-	EndDate     string          `json:"endDate,omitempty" jsonschema:"create, random: weekly entry end date, six days after date (Mealie v3.30.0+)."`
+	EndDate     *string         `json:"endDate,omitempty" jsonschema:"create, random: weekly entry end date, six days after date (Mealie v3.30.0+)."`
 	Date        string          `json:"date,omitempty" jsonschema:"create, random: date, YYYY-MM-DD."`
 	EntryType   string          `json:"entryType,omitempty" jsonschema:"create, random, rule_create: meal type: breakfast, lunch, dinner, side, snack, drink or dessert (create, random default dinner)."`
 	Slug        string          `json:"slug,omitempty" jsonschema:"create: recipe slug or id to plan; use this or title."`
@@ -99,15 +99,15 @@ func parseDate(field, value string) (time.Time, error) {
 	return date, nil
 }
 
-func (s *session) checkMealplanDates(action, date, endDate string) error {
+func (s *session) checkMealplanDates(action, date string, endDate *string) error {
 	start, err := parseDate("date", date)
-	if err != nil || endDate == "" {
+	if err != nil || endDate == nil {
 		return err
 	}
 	if err := s.requireMealie(action+" with endDate", weeklyMealPlanMinVersion); err != nil {
 		return err
 	}
-	end, err := parseDate("endDate", endDate)
+	end, err := parseDate("endDate", *endDate)
 	if err != nil {
 		return err
 	}
@@ -226,8 +226,8 @@ func (s *session) checkEntry(action string, e mealplanEntry) error {
 
 func entryBody(ctx context.Context, s *session, e mealplanEntry) (map[string]any, error) {
 	body := map[string]any{"date": e.Date, "entryType": orDefaultEntryType(e.EntryType)}
-	if e.EndDate != "" {
-		body["endDate"] = e.EndDate
+	if e.EndDate != nil {
+		body["endDate"] = *e.EndDate
 	}
 	if e.Title != "" {
 		body["title"] = e.Title
@@ -315,8 +315,8 @@ func randomMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 		return nil, err
 	}
 	body := map[string]string{"date": in.Date, "entryType": orDefaultEntryType(in.EntryType)}
-	if in.EndDate != "" {
-		body["endDate"] = in.EndDate
+	if in.EndDate != nil {
+		body["endDate"] = *in.EndDate
 	}
 	raw, err := s.call(ctx, http.MethodPost, mealplansPath+"/random", nil, body)
 	if err != nil {

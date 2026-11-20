@@ -356,24 +356,32 @@ func TestMealie330Features(t *testing.T) {
 	})
 	t.Run("sort_by_total_time_with_missing_last", func(t *testing.T) {
 		prefix := "Time sort " + uniqueSuffix()
-		var want []string
-		for _, recipe := range []struct{ name, time string }{{"fast", "10 minutes"}, {"slow", "40 minutes"}, {"untimed", ""}} {
+		slugs := make(map[string]string)
+		for _, recipe := range []struct {
+			name    string
+			seconds int
+		}{{"untimed", 0}, {"slow", 2400}, {"fast", 600}} {
 			var created namedItem
 			callOK(t, session, "recipes_write", map[string]any{"action": "create", "name": prefix + " " + recipe.name}, &created)
 			defer callOK(t, session, "recipes_write", map[string]any{"action": "delete", "slug": created.Slug}, nil)
-			want = append(want, created.Slug)
-			if recipe.time != "" {
-				callOK(t, session, "recipes_write", map[string]any{"action": "update", "slug": created.Slug, "fields": map[string]any{"totalTime": recipe.time}}, nil)
+			slugs[recipe.name] = created.Slug
+			if recipe.seconds > 0 {
+				callOK(t, session, "recipes_write", map[string]any{"action": "update", "slug": created.Slug, "fields": map[string]any{"totalTimeSeconds": recipe.seconds}}, nil)
 			}
 		}
-		var found itemsResult
-		callOK(t, session, "recipes_read", map[string]any{"action": "search", "query": prefix, "orderBy": "total_time_seconds", "orderDirection": "asc"}, &found)
-		var got []string
-		for _, item := range found.Items {
-			got = append(got, item.Slug)
-		}
-		if !slices.Equal(got, want) {
-			t.Fatalf("sorted slugs %v, want %v", got, want)
+		for _, order := range []struct {
+			direction, first, second string
+		}{{"asc", "fast", "slow"}, {"desc", "slow", "fast"}} {
+			var found itemsResult
+			callOK(t, session, "recipes_read", map[string]any{"action": "search", "query": prefix, "orderBy": "total_time_seconds", "orderDirection": order.direction}, &found)
+			var got []string
+			for _, item := range found.Items {
+				got = append(got, item.Slug)
+			}
+			want := []string{slugs[order.first], slugs[order.second], slugs["untimed"]}
+			if !slices.Equal(got, want) {
+				t.Errorf("%s sorted slugs %v, want %v", order.direction, got, want)
+			}
 		}
 	})
 }

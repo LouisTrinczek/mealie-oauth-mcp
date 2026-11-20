@@ -23,7 +23,7 @@ type mealieAPIInput struct {
 func addMealieAPI(srv *mcp.Server, d Deps) error {
 	return addSingleTool(srv, d.toolkit(), &mcp.Tool{
 		Name:        "mealie_api",
-		Description: "Call a Mealie API endpoint directly as the current user. Use it only when no other tool covers what you need. Only endpoints in the everyday areas (recipes, timeline, meal plans, organizers, shopping, foods, units, labels, comments, ratings, parser, your own user, household and group) are allowed; admin, auth, tokens, webhooks, notifications, and other users are blocked.",
+		Description: "Call a Mealie API endpoint directly as the current user. Use it only when no other tool covers what you need. Choose endpoints and fields supported by the connected Mealie version. Mealie may silently ignore unsupported write fields. Only endpoints in the everyday areas (recipes, timeline, meal plans, organizers, shopping, foods, units, labels, comments, ratings, parser, your own user, household and group) are allowed; admin, auth, tokens, webhooks, notifications, and other users are blocked.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: new(true), OpenWorldHint: new(false)},
 	}, map[string][]any{
 		"method": {"GET", "POST", "PUT", "PATCH", "DELETE"},
