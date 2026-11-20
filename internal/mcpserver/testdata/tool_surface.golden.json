@@ -359,6 +359,9 @@
         "day": {
           "type": "string"
         },
+        "endDate": {
+          "type": "string"
+        },
         "entries": {
           "type": [
             "null",
@@ -368,6 +371,9 @@
             "type": "object",
             "properties": {
               "date": {
+                "type": "string"
+              },
+              "endDate": {
                 "type": "string"
               },
               "entryType": {
