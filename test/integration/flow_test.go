@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"io"
 	"maps"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -84,6 +86,7 @@ func TestFullFlow(t *testing.T) {
 		{"consent_allow_redirects_with_code", f.allowConsent},
 		{"code_exchange_issues_tokens", f.exchangeCode},
 		{"whoami_over_mcp", f.whoami},
+		{"mealie_token_renews", f.renewMealieToken},
 		{"refresh_rotates_and_reuse_is_rejected", f.refreshAndReuse},
 		{"second_authorize_skips_consent", f.authorizeWithoutConsent},
 		{"revoke_ends_the_session", f.revoke},
@@ -103,9 +106,11 @@ func startedFlow(t *testing.T) *flow {
 	logs := &syncBuffer{}
 	leaks := leakWatch{}
 	t.Cleanup(func() { leaks.check(t, logs.String()) })
-	metricsAddr := startServer(ctx, t, logs, leaks)
+	dataDir := t.TempDir()
+	metricsAddr := startServer(ctx, t, logs, leaks, dataDir)
 	f := newFlow(ctx, t, leaks, itPublicURL, http.DefaultTransport)
 	f.metricsURL = "http://" + metricsAddr + "/metrics"
+	f.dataDir = dataDir
 	return f
 }
 
@@ -118,7 +123,7 @@ func loggedInSession(t *testing.T) *mcp.ClientSession {
 	return f.connect(t)
 }
 
-func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWatch) string {
+func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWatch, dataDir string) string {
 	t.Helper()
 	keyMaterial := make([]byte, 32)
 	_, _ = rand.Read(keyMaterial)
@@ -129,7 +134,7 @@ func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWa
 		"INSECURE_ALLOW_HTTP": "true",
 		"MEALIE_URL":          mealieURL,
 		"ENCRYPTION_KEYS":     "it:" + key,
-		"DATA_DIR":            t.TempDir(),
+		"DATA_DIR":            dataDir,
 		"LISTEN_ADDR":         listenAddr,
 		"METRICS_ADDR":        freeLocalAddr(ctx, t),
 		"LOG_LEVEL":           "debug",
@@ -275,4 +280,33 @@ func (f *flow) postMCP(t *testing.T, accessToken string) reply {
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
 	return send(t, f.api, req)
+}
+
+func (f *flow) renewMealieToken(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(f.dataDir, "mealie-mcp.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("closing session database: %v", err)
+		}
+	}()
+	session := f.connect(t)
+	dueAt := time.Now().Add(5 * time.Minute).Unix()
+	result, err := db.ExecContext(t.Context(), "UPDATE sessions SET mealie_token_expires_at = ?", dueAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := result.RowsAffected(); err != nil || count != 1 {
+		t.Fatalf("marking the Mealie token due affected %d sessions: %v", count, err)
+	}
+	callOK(t, session, "whoami", nil, nil)
+	var renewedAt int64
+	if err := db.QueryRowContext(t.Context(), "SELECT mealie_token_expires_at FROM sessions").Scan(&renewedAt); err != nil {
+		t.Fatal(err)
+	}
+	if renewedAt <= dueAt {
+		t.Fatal("Mealie token expiry did not advance after the MCP request")
+	}
 }

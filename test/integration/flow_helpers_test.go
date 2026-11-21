@@ -87,6 +87,7 @@ type flow struct {
 	code         string
 	tokens       tokens
 	metricsURL   string
+	dataDir      string
 }
 
 func waitForOK(ctx context.Context, t *testing.T, endpoint string, timeout time.Duration) {

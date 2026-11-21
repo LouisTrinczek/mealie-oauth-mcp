@@ -3,12 +3,14 @@
 package integration
 
 import (
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -46,9 +48,10 @@ type itemsResult struct {
 }
 
 type plannedEntry struct {
-	ID     any       `json:"id"`
-	Text   string    `json:"text"`
-	Recipe namedItem `json:"recipe"`
+	EndDate string    `json:"endDate"`
+	ID      any       `json:"id"`
+	Text    string    `json:"text"`
+	Recipe  namedItem `json:"recipe"`
 }
 
 type plannedEntries struct {
@@ -322,4 +325,80 @@ func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[st
 		t.Fatalf("%s returned %T, want text", name, result.Content[0])
 	}
 	return text.Text, result.IsError
+}
+
+func TestMealieVersionedFeatures(t *testing.T) {
+	base, err := url.Parse(mealieURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	about, err := mealie.New(base, mealie.Options{}).About(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sortSupport, err := mealie.CompareVersions(about.Version, "v3.29.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sortSupport < 0 {
+		t.Skipf("Mealie %s predates v3.29.0", about.Version)
+	}
+	session := loggedInSession(t)
+	t.Run("weekly_entry_overlaps_range", func(t *testing.T) {
+		weeklySupport, err := mealie.CompareVersions(about.Version, "v3.30.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if weeklySupport < 0 {
+			t.Skipf("Mealie %s predates weekly meal plans", about.Version)
+		}
+		checkWeeklyMealplanOverlap(t, session)
+	})
+	t.Run("sort_by_total_time_with_missing_last", func(t *testing.T) {
+		checkTotalTimeSort(t, session)
+	})
+}
+
+func checkWeeklyMealplanOverlap(t *testing.T, session *mcp.ClientSession) {
+	t.Helper()
+	var created plannedEntry
+	callOK(t, session, "mealplans_write", map[string]any{"action": "create", "date": "2026-12-29", "endDate": "2027-01-04", "title": "Weekly soup"}, &created)
+	defer callOK(t, session, "mealplans_write", map[string]any{"action": "delete", "id": created.ID}, nil)
+	var listed plannedEntries
+	callOK(t, session, "mealplans_read", map[string]any{"action": "list", "start": "2027-01-01", "end": "2027-01-02"}, &listed)
+	if !slices.ContainsFunc(listed.Items, func(entry plannedEntry) bool { return entry.ID == created.ID && entry.EndDate == "2027-01-04" }) {
+		t.Fatalf("weekly meal %v missing from overlapping range: %+v", created.ID, listed.Items)
+	}
+}
+
+func checkTotalTimeSort(t *testing.T, session *mcp.ClientSession) {
+	t.Helper()
+	prefix := "Time sort " + uniqueSuffix()
+	slugs := make(map[string]string)
+	for _, recipe := range []struct {
+		name    string
+		seconds int
+	}{{"untimed", 0}, {"slow", 2400}, {"fast", 600}} {
+		var created namedItem
+		callOK(t, session, "recipes_write", map[string]any{"action": "create", "name": prefix + " " + recipe.name}, &created)
+		defer callOK(t, session, "recipes_write", map[string]any{"action": "delete", "slug": created.Slug}, nil)
+		slugs[recipe.name] = created.Slug
+		if recipe.seconds > 0 {
+			callOK(t, session, "recipes_write", map[string]any{"action": "update", "slug": created.Slug, "fields": map[string]any{"totalTimeSeconds": recipe.seconds}}, nil)
+		}
+	}
+	for _, order := range []struct {
+		direction, first, second string
+	}{{"asc", "fast", "slow"}, {"desc", "slow", "fast"}} {
+		var found itemsResult
+		callOK(t, session, "recipes_read", map[string]any{"action": "search", "query": prefix, "orderBy": "total_time_seconds", "orderDirection": order.direction}, &found)
+		var got []string
+		for _, item := range found.Items {
+			got = append(got, item.Slug)
+		}
+		want := []string{slugs[order.first], slugs[order.second], slugs["untimed"]}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s sorted slugs %v, want %v", order.direction, got, want)
+		}
+	}
 }

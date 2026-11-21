@@ -93,6 +93,8 @@ tests pass.
 
 Mealie ships every one to two weeks and adds fields freely.
 
+- Follow the [Mealie version compatibility policy](CONTRIBUTING.md#mealie-version-compatibility)
+  for every change that relies on a newer Mealie API.
 - Decode Mealie responses leniently; unknown fields must never cause errors.
 - Never update a Mealie object by round-tripping it through a typed struct.
   Use `PATCH` with only the changed fields, or `GET` the raw JSON, merge, and

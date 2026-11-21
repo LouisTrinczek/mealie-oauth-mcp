@@ -331,7 +331,7 @@ func TestStartupCheck_RetriesUnreachableMealie(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			probe := &fakeProbe{aboutErrs: tt.errs}
 			check := startupCheck{mealie: probe, mealieURL: "http://mealie.test", logger: slog.New(slog.DiscardHandler), retries: startupRetries, retryDelay: time.Millisecond, reachTimeout: time.Minute}
-			err := check.run(t.Context())
+			_, err := check.run(t.Context())
 			if probe.calls != tt.wantCalls {
 				t.Errorf("About calls = %d, want %d", probe.calls, tt.wantCalls)
 			}
@@ -355,7 +355,7 @@ func TestStartupCheck_StopsWhenCanceled(t *testing.T) {
 	cancel()
 	check := startupCheck{mealie: probe, mealieURL: "http://mealie.test", logger: slog.New(slog.DiscardHandler), retries: startupRetries, retryDelay: time.Hour, reachTimeout: time.Minute}
 
-	if err := check.run(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := check.run(ctx); !errors.Is(err, context.Canceled) {
 		t.Errorf("error = %v, want context.Canceled", err)
 	}
 }
@@ -379,7 +379,7 @@ func TestStartupCheck_GivesUpOnHangingMealie(t *testing.T) {
 	}
 
 	started := time.Now()
-	err = check.run(t.Context())
+	_, err = check.run(t.Context())
 	if elapsed := time.Since(started); elapsed > 2*time.Second {
 		t.Errorf("check took %v, want it bounded by the reachability timeout", elapsed)
 	}
@@ -987,6 +987,12 @@ func TestApp_ToolsGetTheAppLogger(t *testing.T) {
 		t.Fatalf("newApp: %v", err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
+	if count := len(fake.seenUserAgents()); count != 2 {
+		t.Errorf("startup made %d Mealie requests, want one about and one native config request", count)
+	}
+	if got.MealieVersion != "v3.29.0" || got.Version != "test" {
+		t.Errorf("unexpected tool versions: Mealie %q, MCP %q", got.MealieVersion, got.Version)
+	}
 	if got.Logger != logger {
 		t.Errorf("tools logger = %p, want the app logger %p", got.Logger, logger)
 	}

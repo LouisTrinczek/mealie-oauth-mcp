@@ -34,7 +34,7 @@ type recipesReadInput struct {
 	Tools          []string `json:"tools,omitempty" jsonschema:"search: tool slugs or ids. suggest: tool ids (organizers_read lists them)."`
 	Foods          []string `json:"foods,omitempty" jsonschema:"search, suggest: food ids (foods have no slugs; ingredients_read lists them)."`
 	RequireAll     bool     `json:"requireAll,omitempty" jsonschema:"search: require all given categories, tags, tools and foods instead of any."`
-	OrderBy        string   `json:"orderBy,omitempty" jsonschema:"search: e.g. name, createdAt, rating, lastMade, random."`
+	OrderBy        string   `json:"orderBy,omitempty" jsonschema:"search: e.g. name, createdAt, rating, lastMade, random, total_time_seconds (Mealie v3.29.0+)."`
 	OrderDirection string   `json:"orderDirection,omitempty" jsonschema:"search: sort direction."`
 	Page           int      `json:"page,omitempty" jsonschema:"search: page number, starting at 1."`
 	PerPage        int      `json:"perPage,omitempty" jsonschema:"search: results per page (default 20, max 100)."`
@@ -82,7 +82,7 @@ func addRecipesWrite(srv *mcp.Server, d Deps) error {
 		{name: "delete", help: "Delete a recipe. Needs slug.", run: deleteRecipe},
 		{name: "mark_made", help: "Set the recipe's last-made date only; it adds no timeline entry. Use history_write made_it to also log it on the timeline. Needs slug. Optional: timestamp.", run: markMadeAction},
 		{name: "set_image_url", help: "Set a recipe image from a URL. Needs slug, url.", run: setRecipeImage},
-		{name: "add_asset_url", help: "Attach a file from a URL to a recipe. Needs slug, url.", run: addRecipeAsset},
+		{name: "add_asset_url", help: "Attach a file from a URL to a recipe. Requires Mealie v3.28.0+. Needs slug, url.", run: addRecipeAsset},
 		{name: "share", help: "Create a share link. Needs slug. Optional: expiresAt.", run: shareRecipe},
 		{name: "bulk_tag", help: "Add tags to many recipes. Needs slugs, tags.", run: bulkTag},
 		{name: "bulk_categorize", help: "Add categories to many recipes. Needs slugs, categories.", run: bulkCategorize},
@@ -203,7 +203,12 @@ func setRecipeImage(ctx context.Context, s *session, in recipesWriteInput) (any,
 	return ok(nil), nil
 }
 
+const recipeAssetURLMinVersion = "v3.28.0"
+
 func addRecipeAsset(ctx context.Context, s *session, in recipesWriteInput) (any, error) {
+	if err := s.requireMealie("add_asset_url", recipeAssetURLMinVersion); err != nil {
+		return nil, err
+	}
 	raw, err := postRecipeURL(ctx, s, "add_asset_url", "/assets/url", in)
 	if err != nil {
 		return nil, err
@@ -341,9 +346,17 @@ func getRecipeRaw(ctx context.Context, s *session, slug string) (json.RawMessage
 	return s.call(ctx, http.MethodGet, path, nil, nil)
 }
 
+const recipeTotalTimeSortMinVersion = "v3.29.0"
+
 func searchRecipes(ctx context.Context, s *session, in recipesReadInput) (any, error) {
 	query := pageQuery(in.Page, in.PerPage)
 	setIfNotEmpty(query, "search", in.Query)
+	if in.OrderBy == "total_time_seconds" {
+		if err := s.requireMealie("search by total_time_seconds", recipeTotalTimeSortMinVersion); err != nil {
+			return nil, err
+		}
+		query.Set("orderByNullPosition", "last")
+	}
 	setIfNotEmpty(query, "orderBy", in.OrderBy)
 	setIfNotEmpty(query, "orderDirection", in.OrderDirection)
 	query["categories"] = in.Categories

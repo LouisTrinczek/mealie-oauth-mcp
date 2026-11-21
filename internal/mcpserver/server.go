@@ -42,13 +42,14 @@ type MealieClient interface {
 }
 
 type Deps struct {
-	Tokens  TokenSource
-	Mealie  MealieClient
-	Clock   func() time.Time
-	Version string
-	Logger  *slog.Logger
-	Metrics *metrics.Registry
-	Tracing trace.TracerProvider
+	Tokens        TokenSource
+	Mealie        MealieClient
+	Clock         func() time.Time
+	Version       string
+	MealieVersion string
+	Logger        *slog.Logger
+	Metrics       *metrics.Registry
+	Tracing       trace.TracerProvider
 }
 
 func New(d Deps) (*mcp.Server, error) {

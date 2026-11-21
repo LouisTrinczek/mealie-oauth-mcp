@@ -645,3 +645,34 @@ func TestRecipesTools_DescribeIDsAndMarkMade(t *testing.T) {
 		t.Errorf("recipes_write description %q lacks %q", description, markMade)
 	}
 }
+
+func TestRecipesRead_TotalTimeSort(t *testing.T) {
+	for _, version := range []string{"v3.28.0", "v3.29.0", "v3.30.0"} {
+		for _, direction := range []string{"asc", "desc"} {
+			t.Run(version+"/"+direction, func(t *testing.T) {
+				checkTotalTimeSearch(t, version, direction)
+			})
+		}
+	}
+}
+
+func checkTotalTimeSearch(t *testing.T, version, direction string) {
+	t.Helper()
+	api := newFakeMealie(t)
+	api.on(http.MethodGet, "/api/recipes", http.StatusOK, recipesPageBody)
+	d := toolDeps(t, api, &fakeTokens{})
+	d.MealieVersion = version
+	res := callTool(t, connectInMemory(t, d), "recipes_read", map[string]any{"action": "search", "orderBy": "total_time_seconds", "orderDirection": direction, "page": 2})
+	seen := api.requests()
+	if version == "v3.28.0" {
+		requireToolError(t, res, "search by total_time_seconds requires Mealie v3.29.0 or later.")
+		if len(seen) != 0 {
+			t.Fatalf("unexpected upstream requests: %v", seen)
+		}
+		return
+	}
+	want := url.Values{"orderBy": {"total_time_seconds"}, "orderByNullPosition": {"last"}, "orderDirection": {direction}, "page": {"2"}, "perPage": {"20"}}
+	if res.IsError || len(seen) != 1 || !reflect.DeepEqual(seen[0].Query, want) {
+		t.Fatalf("result %s, requests %v, want query %v", resultText(t, res), seen, want)
+	}
+}

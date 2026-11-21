@@ -28,7 +28,7 @@ func TestMealplansRead_ListDefaultsToComingWeek(t *testing.T) {
 	assertGolden(t, "mealplans_list", resultText(t, res))
 	want := url.Values{
 		"start_date": {"2026-10-30"}, "end_date": {"2026-11-05"},
-		"orderBy": {"date"}, "orderDirection": {"asc"}, "page": {"1"}, "perPage": {"20"},
+		"orderBy": {"date"}, "orderDirection": {"asc"}, "include_week_entries": {"true"}, "page": {"1"}, "perPage": {"20"},
 	}
 	if seen := api.requests(); len(seen) != 1 || !reflect.DeepEqual(seen[0].Query, want) {
 		t.Errorf("requests = %+v, want one GET with query %v", seen, want)
@@ -43,7 +43,7 @@ func TestMealplansRead_ListPastRange(t *testing.T) {
 	callTool(t, cs, "mealplans_read", map[string]any{"action": "list", "start": "2026-09-01", "end": "2026-09-30", "page": 2, "perPage": 5})
 	want := url.Values{
 		"start_date": {"2026-09-01"}, "end_date": {"2026-09-30"},
-		"orderBy": {"date"}, "orderDirection": {"asc"}, "page": {"2"}, "perPage": {"5"},
+		"orderBy": {"date"}, "orderDirection": {"asc"}, "include_week_entries": {"true"}, "page": {"2"}, "perPage": {"5"},
 	}
 	if seen := api.requests(); len(seen) != 1 || !reflect.DeepEqual(seen[0].Query, want) {
 		t.Errorf("requests = %+v, want one GET with query %v", seen, want)
@@ -620,5 +620,126 @@ func TestMealplans_MealieFailuresAreReported(t *testing.T) {
 				t.Error("IsError = false, want the Mealie failure")
 			}
 		})
+	}
+}
+
+func TestMealplansRead_WeeklyEntries(t *testing.T) {
+	for _, version := range []string{"v3.29.0", "v3.30.0", "unknown"} {
+		t.Run(version, func(t *testing.T) {
+			api := newFakeMealie(t)
+			body := entriesPageBody
+			if version == "v3.30.0" {
+				body = strings.Replace(body, `"date":"2026-10-31"`, `"date":"2026-10-31","endDate":"2026-11-06"`, 1)
+			}
+			api.on("GET", mealplansEndpoint, 200, body)
+			d := toolDeps(t, api, &fakeTokens{})
+			d.MealieVersion = version
+			res := callTool(t, connectInMemory(t, d), "mealplans_read", map[string]any{"action": "list"})
+			seen := api.requests()
+			weekly := version == "v3.30.0"
+			if res.IsError || len(seen) != 1 || (seen[0].Query.Get("include_week_entries") == "true") != weekly ||
+				strings.Contains(resultText(t, res), `"endDate":"2026-11-06"`) != weekly {
+				t.Fatalf("result %s, requests %v", resultText(t, res), seen)
+			}
+		})
+	}
+}
+
+func TestMealplansWrite_WeeklyEntries(t *testing.T) {
+	for _, action := range []string{"create", "bulk_create", "random"} {
+		for _, tc := range []struct {
+			version, end, wantErr string
+			omit                  bool
+		}{
+			{"v3.30.0", "2027-01-04", "", false},
+			{"v3.25.0", "", "", true},
+			{"unknown", "", "", true},
+			{"v3.30.0", "", "YYYY-MM-DD", false},
+			{"v3.30.0", "tomorrow", "YYYY-MM-DD", false},
+			{"v3.30.0", "2027-01-03", "six days", false},
+			{"v3.29.0", "2027-01-04", "v3.30.0", false},
+		} {
+			t.Run(action+"/"+tc.version+"/"+tc.end, func(t *testing.T) {
+				checkWeeklyMealplanWrite(t, action, tc.version, tc.end, tc.wantErr, tc.omit)
+			})
+		}
+	}
+}
+
+func checkWeeklyMealplanWrite(t *testing.T, action, version, end, wantErr string, omit bool) {
+	t.Helper()
+	api := newFakeMealie(t)
+	path := mealplansEndpoint
+	if action == "random" {
+		path += "/random"
+	}
+	api.on("POST", path, 201, entryBodyJSON)
+	d := toolDeps(t, api, &fakeTokens{})
+	d.MealieVersion = version
+	args := map[string]any{"action": action, "date": "2026-12-29"}
+	if action != "random" {
+		args["title"] = "Soup"
+	}
+	if !omit {
+		args["endDate"] = end
+	}
+	if action == "bulk_create" {
+		delete(args, "action")
+		entries := []map[string]any{args}
+		if wantErr != "" {
+			entries = append([]map[string]any{{"date": "2026-12-29", "slug": "needs-lookup"}}, entries...)
+		}
+		args = map[string]any{"action": action, "entries": entries}
+	}
+	res := callTool(t, connectInMemory(t, d), "mealplans_write", args)
+	seen := api.requests()
+	if wantErr != "" {
+		if !res.IsError || !strings.Contains(resultText(t, res), wantErr) || len(seen) != 0 {
+			t.Fatalf("want %q and no requests, got %s, %v", wantErr, resultText(t, res), seen)
+		}
+	} else if res.IsError || len(seen) != 1 || strings.Contains(seen[0].Body, `"endDate"`) != !omit ||
+		(!omit && !strings.Contains(seen[0].Body, `"endDate":"2027-01-04"`)) {
+		t.Fatalf("result %s, requests %v", resultText(t, res), seen)
+	}
+}
+
+func TestMealplansWrite_WeeklyUpdate(t *testing.T) {
+	for _, tc := range []struct {
+		version, key string
+		conflict     bool
+	}{
+		{"v3.29.0", "endDate", false}, {"v3.29.0", "end_date", false},
+		{"v3.30.0", "endDate", false}, {"v3.30.0", "end_date", false}, {"v3.30.0", "end_date", true},
+	} {
+		t.Run(tc.version+"/"+tc.key, func(t *testing.T) {
+			checkWeeklyMealplanUpdate(t, tc.version, tc.key, tc.conflict)
+		})
+	}
+}
+
+func checkWeeklyMealplanUpdate(t *testing.T, version, key string, conflict bool) {
+	t.Helper()
+	api := newFakeMealie(t)
+	path := mealplansEndpoint + "/5"
+	api.on("GET", path, 200, `{"id":5,"date":"2026-12-28","endDate":"2027-01-03"}`)
+	api.on("PUT", path, 200, `{"id":5,"date":"2026-12-29","endDate":"2027-01-04"}`)
+	d := toolDeps(t, api, &fakeTokens{})
+	d.MealieVersion = version
+	fields := map[string]any{"date": "2026-12-29", key: "2027-01-04"}
+	if conflict {
+		fields["endDate"] = "2027-01-03"
+	}
+	res := callTool(t, connectInMemory(t, d), "mealplans_write", map[string]any{"action": "update", "id": "5", "fields": fields})
+	seen := api.requests()
+	if version == "v3.29.0" || conflict {
+		want := "v3.30.0"
+		if conflict {
+			want = "conflict"
+		}
+		if !res.IsError || !strings.Contains(resultText(t, res), want) || len(seen) != 0 {
+			t.Fatalf("want %q and no requests, got %s, %v", want, resultText(t, res), seen)
+		}
+	} else if res.IsError || len(seen) != 2 || seen[1].Body != `{"date":"2026-12-29","endDate":"2027-01-04","id":5}` {
+		t.Fatalf("result %s, requests %v", resultText(t, res), seen)
 	}
 }

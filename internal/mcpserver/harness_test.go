@@ -111,7 +111,7 @@ func fixedClock() time.Time {
 
 func toolDeps(t *testing.T, api *fakeAPI, tokens *fakeTokens) Deps {
 	t.Helper()
-	return Deps{Tokens: tokens, Mealie: api.client(t), Clock: fixedClock, Logger: slog.New(slog.DiscardHandler)}
+	return Deps{MealieVersion: "v3.31.0", Tokens: tokens, Mealie: api.client(t), Clock: fixedClock, Logger: slog.New(slog.DiscardHandler)}
 }
 
 func connectTools(t *testing.T, api *fakeAPI) *mcp.ClientSession {

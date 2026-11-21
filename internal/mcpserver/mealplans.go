@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -14,16 +16,17 @@ import (
 )
 
 const (
-	mealplansPath     = "/api/households/mealplans"
-	mealplanRulesPath = mealplansPath + "/rules"
-	dateLayout        = "2006-01-02"
-	defaultEntryType  = "dinner"
-	listedDays        = 7
-	maxBulkEntries    = 31
+	mealplansPath            = "/api/households/mealplans"
+	mealplanRulesPath        = mealplansPath + "/rules"
+	dateLayout               = "2006-01-02"
+	defaultEntryType         = "dinner"
+	listedDays               = 7
+	maxBulkEntries           = 31
+	weeklyMealPlanMinVersion = "v3.30.0"
 )
 
 var (
-	mealplanFields     = []string{"id", "date", "entryType", "title", "text", "recipe"}
+	mealplanFields     = []string{"id", "date", "endDate", "entryType", "title", "text", "recipe"}
 	mealplanRuleFields = []string{"id", "day", "entryType", "queryFilterString"}
 	entryTypes         = []any{"breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"}
 )
@@ -42,22 +45,24 @@ func addMealplansRead(srv *mcp.Server, d Deps) error {
 		summary: "Read the meal plan. list covers past and future dates (history included); today is a shortcut.",
 		read:    true,
 	}, []action[mealplansReadInput]{
-		{name: "list", help: "List planned meals, oldest first. Optional: start, end, page, perPage.", run: listMealplans},
+		{name: "list", help: "List planned meals, oldest first. Includes overlapping weekly entries on Mealie v3.30.0+. Optional: start, end, page, perPage.", run: listMealplans},
 		{name: "today", help: "List today's planned meals.", run: todaysMealplans},
 		{name: "rules", help: "List the rules used to pick random meals. Optional: page, perPage.", run: listMealplanRules},
 	}, nil)
 }
 
 type mealplanEntry struct {
-	Date      string `json:"date,omitempty" jsonschema:"Date, YYYY-MM-DD."`
-	EntryType string `json:"entryType,omitempty" jsonschema:"Meal type: breakfast, lunch, dinner, side, snack, drink or dessert (default dinner)."`
-	Slug      string `json:"slug,omitempty" jsonschema:"Recipe slug or id to plan; use this or title."`
-	Title     string `json:"title,omitempty" jsonschema:"Free-text meal name when there is no recipe."`
-	Text      string `json:"text,omitempty" jsonschema:"Extra note for the entry."`
+	EndDate   *string `json:"endDate,omitempty" jsonschema:"Weekly entry end date, six days after date (Mealie v3.30.0+)."`
+	Date      string  `json:"date,omitempty" jsonschema:"Date, YYYY-MM-DD."`
+	EntryType string  `json:"entryType,omitempty" jsonschema:"Meal type: breakfast, lunch, dinner, side, snack, drink or dessert (default dinner)."`
+	Slug      string  `json:"slug,omitempty" jsonschema:"Recipe slug or id to plan; use this or title."`
+	Title     string  `json:"title,omitempty" jsonschema:"Free-text meal name when there is no recipe."`
+	Text      string  `json:"text,omitempty" jsonschema:"Extra note for the entry."`
 }
 
 type mealplansWriteInput struct {
 	actionField
+	EndDate     *string         `json:"endDate,omitempty" jsonschema:"create, random: weekly entry end date, six days after date (Mealie v3.30.0+)."`
 	Date        string          `json:"date,omitempty" jsonschema:"create, random: date, YYYY-MM-DD."`
 	EntryType   string          `json:"entryType,omitempty" jsonschema:"create, random, rule_create: meal type: breakfast, lunch, dinner, side, snack, drink or dessert (create, random default dinner)."`
 	Slug        string          `json:"slug,omitempty" jsonschema:"create: recipe slug or id to plan; use this or title."`
@@ -75,10 +80,10 @@ func addMealplansWrite(srv *mcp.Server, d Deps) error {
 		name:    "mealplans_write",
 		summary: "Plan meals. Pass a recipe slug or a free-text title per entry.",
 	}, []action[mealplansWriteInput]{
-		{name: "create", help: "Plan one meal. Needs date and slug or title. Optional: entryType, text.", run: createMealplan},
-		{name: "bulk_create", help: "Plan several meals in order, stopping at the first failure. Needs entries (at most 31).", run: bulkCreateMealplans},
-		{name: "random", help: "Let Mealie pick a random meal using the rules. Needs date. Optional: entryType.", run: randomMealplan},
-		{name: "update", help: "Change a planned meal. Needs id, fields.", run: updateMealplan},
+		{name: "create", help: "Plan one meal. Needs date and slug or title. Optional: entryType, text, endDate (Mealie v3.30.0+).", run: createMealplan},
+		{name: "bulk_create", help: "Plan several meals in order, stopping at the first failure. Needs entries (at most 31). Each entry can include endDate on Mealie v3.30.0+.", run: bulkCreateMealplans},
+		{name: "random", help: "Let Mealie pick a random meal using the rules. Needs date. Optional: entryType, endDate (Mealie v3.30.0+).", run: randomMealplan},
+		{name: "update", help: "Change a planned meal. Needs id, fields. Changing endDate requires Mealie v3.30.0+.", run: updateMealplan},
 		{name: "delete", help: "Remove a planned meal. Needs id.", run: deleteMealplan},
 		{name: "rule_create", help: "Add a random-pick rule. Optional: day, entryType, queryFilter.", run: createMealplanRule},
 		{name: "rule_update", help: "Change a random-pick rule. Needs id, fields.", run: updateMealplanRule},
@@ -94,9 +99,22 @@ func parseDate(field, value string) (time.Time, error) {
 	return date, nil
 }
 
-func checkDate(field, value string) error {
-	_, err := parseDate(field, value)
-	return err
+func (s *session) checkMealplanDates(action, date string, endDate *string) error {
+	start, err := parseDate("date", date)
+	if err != nil || endDate == nil {
+		return err
+	}
+	if err := s.requireMealie(action+" with endDate", weeklyMealPlanMinVersion); err != nil {
+		return err
+	}
+	end, err := parseDate("endDate", *endDate)
+	if err != nil {
+		return err
+	}
+	if !end.Equal(start.AddDate(0, 0, 6)) {
+		return toolFailure("endDate must be exactly six days after date.")
+	}
+	return nil
 }
 
 func listRange(in mealplansReadInput, now time.Time) (string, string, error) {
@@ -132,6 +150,9 @@ func listMealplans(ctx context.Context, s *session, in mealplansReadInput) (any,
 	query.Set("end_date", end)
 	query.Set("orderBy", "date")
 	query.Set("orderDirection", "asc")
+	if s.supportsMealie(weeklyMealPlanMinVersion) {
+		query.Set("include_week_entries", "true")
+	}
 	raw, err := s.call(ctx, http.MethodGet, mealplansPath, query, nil)
 	if err != nil {
 		return nil, err
@@ -190,11 +211,11 @@ func entriesWithStringIDs(entries map[string]any, err error) (any, error) {
 	return entries, nil
 }
 
-func checkEntry(action string, e mealplanEntry) error {
+func (s *session) checkEntry(action string, e mealplanEntry) error {
 	if err := need(action, "date", e.Date); err != nil {
 		return err
 	}
-	if err := checkDate("date", e.Date); err != nil {
+	if err := s.checkMealplanDates(action, e.Date, e.EndDate); err != nil {
 		return err
 	}
 	if e.Slug == "" && e.Title == "" {
@@ -205,6 +226,9 @@ func checkEntry(action string, e mealplanEntry) error {
 
 func entryBody(ctx context.Context, s *session, e mealplanEntry) (map[string]any, error) {
 	body := map[string]any{"date": e.Date, "entryType": orDefaultEntryType(e.EntryType)}
+	if e.EndDate != nil {
+		body["endDate"] = *e.EndDate
+	}
 	if e.Title != "" {
 		body["title"] = e.Title
 	}
@@ -230,8 +254,8 @@ func postMealplan(ctx context.Context, s *session, body map[string]any) (any, er
 }
 
 func createMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	entry := mealplanEntry{Date: in.Date, EntryType: in.EntryType, Slug: in.Slug, Title: in.Title, Text: in.Text}
-	if err := checkEntry("create", entry); err != nil {
+	entry := mealplanEntry{Date: in.Date, EndDate: in.EndDate, EntryType: in.EntryType, Slug: in.Slug, Title: in.Title, Text: in.Text}
+	if err := s.checkEntry("create", entry); err != nil {
 		return nil, err
 	}
 	body, err := entryBody(ctx, s, entry)
@@ -260,7 +284,7 @@ func bulkCreateMealplans(ctx context.Context, s *session, in mealplansWriteInput
 		return nil, toolFailure(fmt.Sprintf("bulk_create takes at most %d entries.", maxBulkEntries))
 	}
 	for i, e := range in.Entries {
-		if err := checkEntry("bulk_create", e); err != nil {
+		if err := s.checkEntry("bulk_create", e); err != nil {
 			return nil, invalidEntry(i, e, err)
 		}
 	}
@@ -287,10 +311,13 @@ func randomMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 	if err := need("random", "date", in.Date); err != nil {
 		return nil, err
 	}
-	if err := checkDate("date", in.Date); err != nil {
+	if err := s.checkMealplanDates("random", in.Date, in.EndDate); err != nil {
 		return nil, err
 	}
 	body := map[string]string{"date": in.Date, "entryType": orDefaultEntryType(in.EntryType)}
+	if in.EndDate != nil {
+		body["endDate"] = *in.EndDate
+	}
 	raw, err := s.call(ctx, http.MethodPost, mealplansPath+"/random", nil, body)
 	if err != nil {
 		return nil, err
@@ -299,7 +326,23 @@ func randomMealplan(ctx context.Context, s *session, in mealplansWriteInput) (an
 }
 
 func updateMealplan(ctx context.Context, s *session, in mealplansWriteInput) (any, error) {
-	raw, err := updateRaw(ctx, s, "update", mealplansPath, in.ID, in.Fields)
+	fields := in.Fields
+	end, hasEnd := fields["endDate"]
+	alias, hasAlias := fields["end_date"]
+	if hasEnd || hasAlias {
+		if err := s.requireMealie("update with endDate", weeklyMealPlanMinVersion); err != nil {
+			return nil, err
+		}
+	}
+	if hasAlias {
+		if hasEnd && !reflect.DeepEqual(end, alias) {
+			return nil, toolFailure("endDate and end_date conflict.")
+		}
+		fields = maps.Clone(fields)
+		fields["endDate"] = alias
+		delete(fields, "end_date")
+	}
+	raw, err := updateRaw(ctx, s, "update", mealplansPath, in.ID, fields)
 	if err != nil {
 		return nil, err
 	}
