@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.4.1...v0.4.2) (2026-11-21)
+
+
+### Dependencies
+
+* bump github.com/pressly/goose/v3 from 3.30.0 to 3.30.1 ([#45](https://github.com/LouisTrinczek/mealie-oauth-mcp/issues/45)) ([38ce247](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/38ce247205efd17ff6ee0a6b5ab97aa07ca14240))
+
 ## [0.4.1](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.4.0...v0.4.1) (2026-11-14)
 
 
