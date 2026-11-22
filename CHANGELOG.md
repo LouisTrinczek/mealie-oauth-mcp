@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.4.1...v0.5.0) (2026-11-22)
+
+
+### Features
+
+* support Mealie version-gated tools and weekly meal plans ([b472efc](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/b472efc5c040eb58cb05154026a19af890e7013b))
+
+
+### Dependencies
+
+* bump github.com/pressly/goose/v3 from 3.30.0 to 3.30.1 ([#45](https://github.com/LouisTrinczek/mealie-oauth-mcp/issues/45)) ([38ce247](https://github.com/LouisTrinczek/mealie-oauth-mcp/commit/38ce247205efd17ff6ee0a6b5ab97aa07ca14240))
+
 ## [0.4.1](https://github.com/LouisTrinczek/mealie-oauth-mcp/compare/v0.4.0...v0.4.1) (2026-11-14)
 
 
