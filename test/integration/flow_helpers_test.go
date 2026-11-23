@@ -329,10 +329,10 @@ func (f *flow) whoami(t *testing.T) {
 	if err != nil {
 		t.Fatalf("calling whoami: %v", err)
 	}
-	assertWhoami(t, result)
+	assertWhoami(t, result, userEmail)
 }
 
-func assertWhoami(t *testing.T, result *mcp.CallToolResult) {
+func assertWhoami(t *testing.T, result *mcp.CallToolResult, email string) {
 	t.Helper()
 	if result.IsError {
 		t.Fatalf("whoami returned a tool error: %v", result.Content)
@@ -346,8 +346,8 @@ func assertWhoami(t *testing.T, result *mcp.CallToolResult) {
 		Email    string `json:"email"`
 	}
 	decode(t, raw, &who)
-	if who.Username == "" || who.Email != userEmail {
-		t.Fatalf("whoami = %s, want a username and email %s", raw, userEmail)
+	if who.Username == "" || who.Email != email {
+		t.Fatalf("whoami = %s, want a username and email %s", raw, email)
 	}
 	t.Logf("Mealie provisioned username %q", who.Username)
 }

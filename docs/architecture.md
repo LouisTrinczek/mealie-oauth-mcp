@@ -11,7 +11,7 @@ One Go binary serves three roles on one origin, `PUBLIC_URL`:
 
 1. **OAuth 2.1 authorization server** for MCP clients. It issues its own
    tokens and delegates the actual user login to the identity provider
-   through Mealie's native OIDC flow.
+   through Mealie's native OIDC flow or opt-in password sign-in.
 2. **MCP resource server** at `/mcp`, protected by bearer-token middleware.
 3. **Mealie client.** It calls Mealie with the logged-in user's Mealie
    session token.
@@ -98,6 +98,13 @@ server reuses that: it asks Mealie for its OIDC settings, sends the browser to
 the identity provider, and hands the returned code to Mealie's native token
 endpoint. Mealie checks the ID token and returns a normal Mealie session
 token.
+
+When password sign-in is enabled by both Mealie and the MCP operator, the
+MCP also offers a browser form. It verifies browser binding and CSRF, then
+claims the pending authorization atomically before exchanging the credentials
+with Mealie over verified HTTPS. OIDC and password sign-in compete for that
+same claim. The resulting Mealie token goes through the existing encrypted
+session and consent flow. See [ADR 0014](adr/0014-opt-in-password-login.md).
 
 ```mermaid
 sequenceDiagram

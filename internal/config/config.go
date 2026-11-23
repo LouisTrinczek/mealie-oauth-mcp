@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -40,19 +42,21 @@ type EncryptionKey struct {
 }
 
 type Config struct {
-	MealieURL         *url.URL
-	PublicURL         *url.URL
-	EncryptionKeys    []EncryptionKey
-	DataDir           string
-	ListenAddr        string
-	SessionMaxAge     time.Duration
-	AccessTokenTTL    time.Duration
-	LogLevel          slog.Level
-	LogFormat         string
-	TrustedProxies    []netip.Prefix
-	InsecureAllowHTTP bool
-	MetricsAddr       string
-	TracingEnabled    bool
+	EnablePasswordLogin bool
+	TLSCertificate      *tls.Certificate
+	MealieURL           *url.URL
+	PublicURL           *url.URL
+	EncryptionKeys      []EncryptionKey
+	DataDir             string
+	ListenAddr          string
+	SessionMaxAge       time.Duration
+	AccessTokenTTL      time.Duration
+	LogLevel            slog.Level
+	LogFormat           string
+	TrustedProxies      []netip.Prefix
+	InsecureAllowHTTP   bool
+	MetricsAddr         string
+	TracingEnabled      bool
 }
 
 func (c *Config) ResourceURL() string {
@@ -83,6 +87,25 @@ func ListenAddr(getenv func(string) (string, bool)) string {
 	return environment{getenv: getenv}.lookup("LISTEN_ADDR", defaultListenAddr)
 }
 
+func HealthcheckTLSName(getenv func(string) (string, bool)) (string, error) {
+	env := environment{getenv: getenv}
+	certFile, keyFile := env.tlsFiles()
+	if certFile == "" && keyFile == "" {
+		return "", nil
+	}
+	if name := env.lookup("HEALTHCHECK_TLS_SERVER_NAME", ""); name != "" {
+		return name, nil
+	}
+	publicURL, err := env.baseURL("PUBLIC_URL")
+	if err != nil {
+		return "", err
+	}
+	if name := publicURL.Hostname(); name != "" {
+		return name, nil
+	}
+	return "", errors.New("PUBLIC_URL must contain a hostname for the TLS health check")
+}
+
 func Load(getenv func(string) (string, bool), readFile func(string) ([]byte, error)) (*Config, error) {
 	env := environment{getenv: getenv, readFile: readFile}
 	cfg := &Config{
@@ -102,6 +125,18 @@ func Load(getenv func(string) (string, bool), readFile func(string) ([]byte, err
 	cfg.MealieURL, err = env.baseURL("MEALIE_URL")
 	collect(err)
 	cfg.PublicURL, err = env.publicURL(cfg.InsecureAllowHTTP)
+	collect(err)
+	cfg.EnablePasswordLogin, err = env.boolean("ENABLE_PASSWORD_LOGIN")
+	collect(err)
+	if cfg.EnablePasswordLogin {
+		if cfg.PublicURL != nil && cfg.PublicURL.Scheme != "https" {
+			collect(errors.New("PUBLIC_URL must use https when ENABLE_PASSWORD_LOGIN is set"))
+		}
+		if cfg.MealieURL != nil && cfg.MealieURL.Scheme != "https" {
+			collect(errors.New("MEALIE_URL must use https when ENABLE_PASSWORD_LOGIN is set"))
+		}
+	}
+	cfg.TLSCertificate, err = env.tlsCertificate(cfg.EnablePasswordLogin)
 	collect(err)
 	cfg.EncryptionKeys, err = env.encryptionKeys()
 	collect(err)
@@ -124,6 +159,40 @@ func Load(getenv func(string) (string, bool), readFile func(string) ([]byte, err
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func (e environment) tlsFiles() (certificate, key string) {
+	return e.lookup("TLS_CERT_FILE", ""), e.lookup("TLS_KEY_FILE", "")
+}
+
+func (e environment) tlsCertificate(required bool) (*tls.Certificate, error) {
+	certFile, keyFile := e.tlsFiles()
+	if !required && certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	if certFile == "" || keyFile == "" {
+		return nil, errors.New("TLS_CERT_FILE and TLS_KEY_FILE are both required for native TLS or ENABLE_PASSWORD_LOGIN")
+	}
+	certPEM, err := e.readFile(certFile)
+	if err != nil {
+		return nil, fmt.Errorf("TLS_CERT_FILE could not be read: %w", err)
+	}
+	keyPEM, err := e.readFile(keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("TLS_KEY_FILE could not be read: %w", err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("loading TLS certificate and key: %w", err)
+	}
+	if required {
+		now := time.Now()
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil || now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
+			return nil, errors.New("TLS_CERT_FILE certificate is outside its validity period")
+		}
+	}
+	return &cert, nil
 }
 
 func (e environment) boolean(name string) (bool, error) {

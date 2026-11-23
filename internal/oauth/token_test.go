@@ -437,6 +437,20 @@ func (f *failingStore) CreatePendingAuth(ctx context.Context, p store.PendingAut
 	return f.Store.CreatePendingAuth(ctx, p)
 }
 
+func (f *failingStore) GetPendingAuth(ctx context.Context, id string) (store.PendingAuth, error) {
+	if err := f.fail("GetPendingAuth"); err != nil {
+		return store.PendingAuth{}, err
+	}
+	return f.Store.GetPendingAuth(ctx, id)
+}
+
+func (f *failingStore) ClaimPendingAuth(ctx context.Context, id string, now time.Time) error {
+	if err := f.fail("ClaimPendingAuth"); err != nil {
+		return err
+	}
+	return f.Store.ClaimPendingAuth(ctx, id, now)
+}
+
 func (f *failingStore) SetPendingAuthLogin(ctx context.Context, id string, l store.Login) error {
 	if err := f.fail("SetPendingAuthLogin"); err != nil {
 		return err

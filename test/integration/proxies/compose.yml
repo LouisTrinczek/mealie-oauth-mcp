@@ -1,0 +1,49 @@
+services:
+  mealie:
+    environment:
+      ALLOW_PASSWORD_LOGIN: "true"
+
+  it:
+    environment:
+      SSL_CERT_FILE: /tls/ca.pem
+      PROXY_TEST_MEALIE_PASSWORD: MyPassword
+    volumes:
+      - ${PROXY_TEST_TLS_DIR:?}:/tls:ro
+    command: go test -tags 'integration proxyintegration' -race -v -timeout 3m -count=1 -run '^TestVerifiedProxyPasswordLogin$' ./test/integration/
+
+  traefik:
+    depends_on: [it]
+    image: traefik:v3.7.17@sha256:f4bb143d1135a579b630ed491e17ec50f6f7c9c6a30585ff3d385471d2a86f5a
+    command:
+      - --entrypoints.http.address=:8080
+      - --entrypoints.http.http.redirections.entrypoint.to=edge
+      - --entrypoints.http.http.redirections.entrypoint.scheme=https
+      - --entrypoints.edge.address=:8443
+      - --entrypoints.wrong-ca.address=:8444
+      - --entrypoints.wrong-name.address=:8445
+      - --providers.file.filename=/etc/traefik/routes.yml
+      - --accesslog
+    volumes:
+      - ${PROXY_TEST_TLS_DIR:?}:/tls:ro
+      - ./proxies/traefik.yml:/etc/traefik/routes.yml:ro
+
+  nginx:
+    depends_on: [it]
+    image: nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284
+    volumes:
+      - ${PROXY_TEST_TLS_DIR:?}:/tls:ro
+      - ./proxies/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  caddy:
+    depends_on: [it]
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    volumes:
+      - ${PROXY_TEST_TLS_DIR:?}:/tls:ro
+      - ./proxies/Caddyfile:/etc/caddy/Caddyfile:ro
+
+  haproxy:
+    depends_on: [it]
+    image: haproxy:3.2.0-alpine@sha256:2de6e08f57cd518c2f8e6d691e297477eff1113f7f6cc9ec314ea0d02b72195d
+    volumes:
+      - ${PROXY_TEST_TLS_DIR:?}:/tls:ro
+      - ./proxies/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro

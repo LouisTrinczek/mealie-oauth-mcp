@@ -152,7 +152,7 @@ func startServer(ctx context.Context, t *testing.T, logs io.Writer, leaks leakWa
 			t.Errorf("closing app: %v", err)
 		}
 	})
-	run(ctx, t, a)
+	run(ctx, t, a, itPublicURL)
 	return cfg.MetricsAddr
 }
 
@@ -169,7 +169,7 @@ func freeLocalAddr(ctx context.Context, t *testing.T) string {
 	return addr
 }
 
-func run(ctx context.Context, t *testing.T, a *app.App) {
+func run(ctx context.Context, t *testing.T, a *app.App, publicURL string) {
 	t.Helper()
 	runCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	done := make(chan error, 1)
@@ -180,7 +180,7 @@ func run(ctx context.Context, t *testing.T, a *app.App) {
 			t.Errorf("running app: %v", err)
 		}
 	})
-	waitForOK(ctx, t, itPublicURL+"/healthz", startupTimeout)
+	waitForOK(ctx, t, publicURL+"/healthz", startupTimeout)
 }
 
 func (f *flow) challenge(t *testing.T) {

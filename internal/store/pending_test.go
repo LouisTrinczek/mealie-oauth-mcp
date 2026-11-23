@@ -13,9 +13,9 @@ func TestPendingAuth_RoundTripWithLogin(t *testing.T) {
 	if err := s.CreatePendingAuth(t.Context(), want); err != nil {
 		t.Fatalf("CreatePendingAuth: %v", err)
 	}
-	got, err := s.GetPendingAuth(t.Context(), "p1")
+	got, err := s.GetPendingAuthByUpstreamState(t.Context(), want.UpstreamStateHash)
 	if err != nil {
-		t.Fatalf("GetPendingAuth: %v", err)
+		t.Fatalf("GetPendingAuthByUpstreamState: %v", err)
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("pending = %+v, want %+v", got, want)
@@ -45,7 +45,7 @@ func TestPendingAuth_RoundTripWithLogin(t *testing.T) {
 	}
 }
 
-func TestTakePendingAuthByUpstreamState_SingleUseAndExpiry(t *testing.T) {
+func TestClaimPendingAuth_SingleUseAndExpiry(t *testing.T) {
 	s := newTestStore(t)
 	expiresAt := baseTime.Add(10 * time.Minute)
 	for _, p := range []PendingAuth{
@@ -59,30 +59,29 @@ func TestTakePendingAuthByUpstreamState_SingleUseAndExpiry(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		state   string
+		id      string
 		now     time.Time
-		wantID  string
 		wantErr error
 	}{
-		{"first take succeeds", "state-live", baseTime, "live", nil},
-		{"second take is not found", "state-live", baseTime, "", ErrNotFound},
-		{"unknown state", "state-unknown", baseTime, "", ErrNotFound},
-		{"expired at boundary", "state-gone", expiresAt, "", ErrNotFound},
+		{"first claim succeeds", "live", baseTime, nil},
+		{"second claim is not found", "live", baseTime, ErrNotFound},
+		{"unknown ID", "unknown", baseTime, ErrNotFound},
+		{"expired at boundary", "gone", expiresAt, ErrNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := s.TakePendingAuthByUpstreamState(t.Context(), []byte(tt.state), tt.now)
+			err := s.ClaimPendingAuth(t.Context(), tt.id, tt.now)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
-			}
-			if got.ID != tt.wantID {
-				t.Fatalf("ID = %q, want %q", got.ID, tt.wantID)
 			}
 		})
 	}
 
+	if _, err := s.GetPendingAuthByUpstreamState(t.Context(), []byte("state-live")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("claimed pending auth remains readable by state: %v", err)
+	}
 	if _, err := s.GetPendingAuth(t.Context(), "live"); err != nil {
-		t.Fatalf("taken pending auth must remain readable by ID: %v", err)
+		t.Fatalf("claimed pending auth must remain readable by ID: %v", err)
 	}
 }
 

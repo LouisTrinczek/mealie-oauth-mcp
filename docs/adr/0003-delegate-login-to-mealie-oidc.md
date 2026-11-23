@@ -1,6 +1,6 @@
 # 3. Delegate login to Mealie's native OIDC flow
 
-Status: Accepted
+Status: Superseded by [0014](0014-opt-in-password-login.md)
 
 Date: 2026-10-31
 

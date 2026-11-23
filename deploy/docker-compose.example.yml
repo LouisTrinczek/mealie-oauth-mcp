@@ -14,8 +14,10 @@ services:
       - mcp_encryption_keys
     volumes:
       - mcp-data:/data
-    # No published port: put a reverse proxy that terminates TLS in front of
-    # this service and forward to mealie-oauth-mcp:8080.
+      # Password sign-in: mount the certificate and key and set their paths in .env.
+      # - ./tls:/run/tls:ro
+    # Forward to mealie-oauth-mcp:8080. Password sign-in requires the proxy
+    # to use HTTPS and verify the MCP listener's certificate.
 
 secrets:
   mcp_encryption_keys:

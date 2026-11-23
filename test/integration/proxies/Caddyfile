@@ -1,0 +1,31 @@
+{
+    auto_https disable_redirects
+    admin off
+}
+
+(test_proxy) {
+    tls /tls/edge.pem /tls/edge.key
+    log
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy https://it:18443 {
+        header_up Host {http.request.host}
+        transport http {
+            tls_server_name {args[0]}
+            tls_trust_pool file {args[1]}
+        }
+    }
+}
+
+http://caddy:8080 {
+    redir https://caddy:8443{uri} 308
+}
+
+https://caddy:8443 {
+    import test_proxy mcp.test /tls/ca.pem
+}
+https://caddy:8444 {
+    import test_proxy mcp.test /tls/unrelated.pem
+}
+https://caddy:8445 {
+    import test_proxy mismatch.test /tls/ca.pem
+}

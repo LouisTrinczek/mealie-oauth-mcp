@@ -157,9 +157,12 @@ func TestRepositories_ClosedStoreErrors(t *testing.T) {
 		{"GetClient", func() error { _, err := s.GetClient(t.Context(), "c"); return err }},
 		{"CreatePendingAuth", func() error { return s.CreatePendingAuth(t.Context(), PendingAuth{ID: "p"}) }},
 		{"GetPendingAuth", func() error { _, err := s.GetPendingAuth(t.Context(), "p"); return err }},
-		{"TakePendingAuthByUpstreamState", func() error {
-			_, err := s.TakePendingAuthByUpstreamState(t.Context(), nil, baseTime)
+		{"GetPendingAuthByUpstreamState", func() error {
+			_, err := s.GetPendingAuthByUpstreamState(t.Context(), nil)
 			return err
+		}},
+		{"ClaimPendingAuth", func() error {
+			return s.ClaimPendingAuth(t.Context(), "", baseTime)
 		}},
 		{"SetPendingAuthLogin", func() error { return s.SetPendingAuthLogin(t.Context(), "p", Login{}) }},
 		{"DeletePendingAuth", func() error { return s.DeletePendingAuth(t.Context(), "p") }},

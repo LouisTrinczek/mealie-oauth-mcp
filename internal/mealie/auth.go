@@ -18,8 +18,9 @@ const (
 )
 
 type About struct {
-	Version    string
-	EnableOIDC bool
+	Version            string
+	EnableOIDC         bool
+	AllowPasswordLogin bool
 }
 
 type NativeConfig struct {
@@ -51,8 +52,9 @@ type User struct {
 }
 
 type aboutWire struct {
-	Version    string `json:"version"`
-	EnableOIDC bool   `json:"enableOidc"`
+	Version            string `json:"version"`
+	EnableOIDC         bool   `json:"enableOidc"`
+	AllowPasswordLogin bool   `json:"allowPasswordLogin"`
 }
 
 type nativeConfigWire struct {

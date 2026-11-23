@@ -58,16 +58,19 @@ func (s *Store) GetPendingAuth(ctx context.Context, id string) (PendingAuth, err
 	return p, nil
 }
 
-func (s *Store) TakePendingAuthByUpstreamState(ctx context.Context, stateHash []byte, now time.Time) (PendingAuth, error) {
+func (s *Store) GetPendingAuthByUpstreamState(ctx context.Context, stateHash []byte) (PendingAuth, error) {
 	p, err := scanPendingAuth(s.db.QueryRowContext(ctx,
-		`UPDATE pending_auths SET upstream_state_hash = NULL
-		WHERE upstream_state_hash = ? AND expires_at > ?
-		RETURNING `+pendingAuthColumns, stateHash, unixSeconds(now)))
+		`SELECT `+pendingAuthColumns+` FROM pending_auths WHERE upstream_state_hash = ?`, stateHash))
 	if err != nil {
-		return PendingAuth{}, lookupError("taking pending auth", err)
+		return PendingAuth{}, lookupError("getting pending auth by upstream state", err)
 	}
-	p.UpstreamStateHash = nil
 	return p, nil
+}
+
+func (s *Store) ClaimPendingAuth(ctx context.Context, id string, now time.Time) error {
+	return s.execOne(ctx, "claiming pending auth", `
+		UPDATE pending_auths SET upstream_state_hash = NULL
+		WHERE id = ? AND upstream_state_hash IS NOT NULL AND expires_at > ?`, id, unixSeconds(now))
 }
 
 func (s *Store) SetPendingAuthLogin(ctx context.Context, id string, l Login) error {

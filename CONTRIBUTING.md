@@ -102,9 +102,19 @@ machine. Add this line to your hosts file if the login redirect fails:
 | `make test` | Unit tests with the race detector. Writes `coverage.out`. |
 | `make cover` | `make test`, then the per-package coverage minimums in `.coverage-thresholds`. The default minimum is 100% per package. |
 | `make test-integration` | End-to-end test against real Mealie and a mock OIDC provider, in Docker. |
+| `make test-proxies` | Password sign-in through Traefik, NGINX, Caddy, and HAProxy. Requires Docker Compose and OpenSSL. |
 | `make fuzz` | Every fuzz target for `FUZZTIME` each (default 10s), for example `make fuzz FUZZTIME=1m`. |
 | `make dev-check` | The dev environment test. Needs `make dev-up` first. |
 | `make release-dry-run` | A GoReleaser snapshot build in Docker. Nothing is published. |
+
+The proxy suite generates disposable certificates and runs the same password
+authorization, `whoami`, and Mealie token renewal checks against each proxy.
+It checks HTTPS redirects and HSTS, verified upstream TLS, rejection of an
+unrelated CA and a wrong hostname, and the absence of the password from
+application and proxy logs. The TLS wrapper for Mealie
+forwards to its HTTP listener over the isolated Docker test network.
+Run `MEALIE_VERSION=v3.25.0 make test-proxies` to use the compatibility
+baseline, as CI does.
 
 Run `go test -race -run TestName ./internal/<pkg>/` for a single test.
 

@@ -150,13 +150,13 @@ func TestAbout(t *testing.T) {
 		if r.URL.Path != "/api/app/about" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
-		respond(w, `{"version":"v3.23.0","enableOidc":true,"production":true}`)
+		respond(w, `{"version":"v3.23.0","enableOidc":true,"production":true,"allowPasswordLogin":true}`)
 	}))
 	about, err := c.About(context.Background())
 	if err != nil {
 		t.Fatalf("About: %v", err)
 	}
-	if about != (About{Version: "v3.23.0", EnableOIDC: true}) {
+	if about != (About{Version: "v3.23.0", EnableOIDC: true, AllowPasswordLogin: true}) {
 		t.Errorf("about = %+v", about)
 	}
 }

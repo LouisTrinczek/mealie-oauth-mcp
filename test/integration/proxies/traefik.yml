@@ -1,0 +1,53 @@
+tls:
+  certificates:
+    - certFile: /tls/edge.pem
+      keyFile: /tls/edge.key
+
+http:
+  routers:
+    verified:
+      rule: PathPrefix(`/`)
+      entryPoints: [edge]
+      service: verified
+      middlewares: [hsts]
+      tls: {}
+    wrong-ca:
+      rule: PathPrefix(`/`)
+      entryPoints: [wrong-ca]
+      service: wrong-ca
+      tls: {}
+    wrong-name:
+      rule: PathPrefix(`/`)
+      entryPoints: [wrong-name]
+      service: wrong-name
+      tls: {}
+
+  middlewares:
+    hsts:
+      headers:
+        stsSeconds: 31536000
+
+  services:
+    verified:
+      loadBalancer:
+        serversTransport: verified
+        servers: [{url: "https://it:18443"}]
+    wrong-ca:
+      loadBalancer:
+        serversTransport: wrong-ca
+        servers: [{url: "https://it:18443"}]
+    wrong-name:
+      loadBalancer:
+        serversTransport: wrong-name
+        servers: [{url: "https://it:18443"}]
+
+  serversTransports:
+    verified:
+      serverName: mcp.test
+      rootCAs: [/tls/ca.pem]
+    wrong-ca:
+      serverName: mcp.test
+      rootCAs: [/tls/unrelated.pem]
+    wrong-name:
+      serverName: mismatch.test
+      rootCAs: [/tls/ca.pem]

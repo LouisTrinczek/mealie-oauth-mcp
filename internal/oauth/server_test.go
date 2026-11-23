@@ -41,9 +41,14 @@ const (
 )
 
 type fakeMealie struct {
-	nativeConfig func(context.Context) (mealie.NativeConfig, error)
-	nativeToken  func(context.Context, mealie.NativeTokenRequest) (mealie.Token, error)
-	self         func(context.Context, secret.Secret) (mealie.User, error)
+	passwordToken func(context.Context, string, secret.Secret) (mealie.Token, error)
+	nativeConfig  func(context.Context) (mealie.NativeConfig, error)
+	nativeToken   func(context.Context, mealie.NativeTokenRequest) (mealie.Token, error)
+	self          func(context.Context, secret.Secret) (mealie.User, error)
+}
+
+func (m *fakeMealie) PasswordToken(ctx context.Context, username string, password secret.Secret) (mealie.Token, error) {
+	return m.passwordToken(ctx, username, password)
 }
 
 func (m *fakeMealie) NativeConfig(ctx context.Context) (mealie.NativeConfig, error) {

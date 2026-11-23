@@ -26,18 +26,21 @@ const (
 var templateFiles embed.FS
 
 var (
-	consentTemplate = template.Must(template.ParseFS(templateFiles, "templates/consent.html"))
-	errorTemplate   = template.Must(template.ParseFS(templateFiles, "templates/error.html"))
+	consentTemplate  = template.Must(template.ParseFS(templateFiles, "templates/consent.html"))
+	passwordTemplate = template.Must(template.ParseFS(templateFiles, "templates/password.html"))
+	errorTemplate    = template.Must(template.ParseFS(templateFiles, "templates/error.html"))
 )
 
 type Config struct {
-	Issuer         string
-	Resource       string
-	CallbackURL    string
-	AccessTokenTTL time.Duration
-	SessionMaxAge  time.Duration
-	TrustedProxies []netip.Prefix
-	SecureCookies  bool
+	Issuer              string
+	Resource            string
+	CallbackURL         string
+	AccessTokenTTL      time.Duration
+	SessionMaxAge       time.Duration
+	TrustedProxies      []netip.Prefix
+	SecureCookies       bool
+	EnableOIDC          bool
+	EnablePasswordLogin bool
 }
 
 type Store interface {
@@ -45,7 +48,8 @@ type Store interface {
 	GetClient(ctx context.Context, id string) (store.Client, error)
 	CreatePendingAuth(ctx context.Context, p store.PendingAuth) error
 	GetPendingAuth(ctx context.Context, id string) (store.PendingAuth, error)
-	TakePendingAuthByUpstreamState(ctx context.Context, stateHash []byte, now time.Time) (store.PendingAuth, error)
+	GetPendingAuthByUpstreamState(ctx context.Context, stateHash []byte) (store.PendingAuth, error)
+	ClaimPendingAuth(ctx context.Context, id string, now time.Time) error
 	SetPendingAuthLogin(ctx context.Context, id string, l store.Login) error
 	DeletePendingAuth(ctx context.Context, id string) error
 	HasConsent(ctx context.Context, userID, clientID string) (bool, error)
@@ -61,6 +65,7 @@ type Store interface {
 }
 
 type MealieAuth interface {
+	PasswordToken(ctx context.Context, username string, password secret.Secret) (mealie.Token, error)
 	NativeConfig(ctx context.Context) (mealie.NativeConfig, error)
 	NativeToken(ctx context.Context, req mealie.NativeTokenRequest) (mealie.Token, error)
 	Self(ctx context.Context, tok secret.Secret) (mealie.User, error)
@@ -121,7 +126,12 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /.well-known/oauth-protected-resource/mcp", resourceMetadata)
 	mux.Handle("POST /register", s.rateLimit(http.HandlerFunc(s.register)))
 	mux.Handle("GET /authorize", s.rateLimit(http.HandlerFunc(s.authorize)))
-	mux.Handle("GET /callback", s.rateLimit(http.HandlerFunc(s.callback)))
+	if s.oidcEnabled() {
+		mux.Handle("GET /callback", s.rateLimit(http.HandlerFunc(s.callback)))
+	}
+	if s.cfg.EnablePasswordLogin {
+		mux.Handle("POST "+passwordPostPath, s.rateLimit(http.HandlerFunc(s.passwordLogin)))
+	}
 	mux.HandleFunc("POST /consent", s.decideConsent)
 	mux.Handle("POST /token", s.rateLimit(http.HandlerFunc(s.token)))
 	mux.Handle("POST /revoke", s.rateLimit(http.HandlerFunc(s.revoke)))

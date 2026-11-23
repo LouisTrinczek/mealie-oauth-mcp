@@ -20,7 +20,7 @@ func TestHealthzURL(t *testing.T) {
 	}
 	for listenAddr, want := range tests {
 		t.Run(listenAddr, func(t *testing.T) {
-			got, err := healthzURL(listenAddr)
+			got, err := healthzURL(listenAddr, false)
 			if err != nil {
 				t.Fatalf("healthzURL(%q) error: %v", listenAddr, err)
 			}
@@ -31,9 +31,16 @@ func TestHealthzURL(t *testing.T) {
 	}
 }
 
+func TestHealthzURL_TLS(t *testing.T) {
+	got, err := healthzURL(":8080", true)
+	if err != nil || got != "https://127.0.0.1:8080/healthz" {
+		t.Fatalf("healthzURL(:8080, true) = %q, %v, want HTTPS loopback URL", got, err)
+	}
+}
+
 func TestHealthzURL_RejectsAddressWithoutPort(t *testing.T) {
 	for _, listenAddr := range []string{"8080", "", "localhost"} {
-		if _, err := healthzURL(listenAddr); err == nil {
+		if _, err := healthzURL(listenAddr, false); err == nil {
 			t.Errorf("healthzURL(%q) returned no error", listenAddr)
 		}
 	}
@@ -49,7 +56,7 @@ func TestCheck_HealthyServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := Check(context.Background(), srv.Client(), srv.Listener.Addr().String()); err != nil {
+	if err := Check(context.Background(), srv.Client(), srv.Listener.Addr().String(), false); err != nil {
 		t.Fatalf("Check() error: %v", err)
 	}
 }
@@ -60,7 +67,7 @@ func TestCheck_UnhealthyStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := Check(context.Background(), srv.Client(), srv.Listener.Addr().String())
+	err := Check(context.Background(), srv.Client(), srv.Listener.Addr().String(), false)
 	if err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("Check() error = %v, want one naming status 503", err)
 	}
@@ -71,14 +78,14 @@ func TestCheck_ServerDown(t *testing.T) {
 	addr := srv.Listener.Addr().String()
 	srv.Close()
 
-	if err := Check(context.Background(), http.DefaultClient, addr); err == nil {
+	if err := Check(context.Background(), http.DefaultClient, addr, false); err == nil {
 		t.Fatal("Check() returned no error for a stopped server")
 	}
 }
 
 func TestCheck_InvalidListenAddr(t *testing.T) {
 	for _, listenAddr := range []string{"8080", "bad host:8080"} {
-		if err := Check(context.Background(), http.DefaultClient, listenAddr); err == nil {
+		if err := Check(context.Background(), http.DefaultClient, listenAddr, false); err == nil {
 			t.Errorf("Check(%q) returned no error", listenAddr)
 		}
 	}

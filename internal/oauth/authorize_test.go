@@ -338,6 +338,8 @@ func TestCallback_WrongBrowserBinding(t *testing.T) {
 				t.Fatal("the upstream code was redeemed despite the binding mismatch")
 			}
 			env.wantNoSession(t)
+			valid, body := get(t, env.client, callback)
+			wantPage(t, valid, body, http.StatusOK, "Allow access to Mealie?")
 		})
 	}
 }
@@ -802,8 +804,10 @@ func TestLogin_StoreStepFailureShowsGenericError(t *testing.T) {
 	}{
 		{"CreatePendingAuth", failAtAuthorize(func(*testEnv) url.Values { return authorizeParams() })},
 		{"UpsertClient", failAtAuthorize(cimdParams)},
+		{"ClaimPendingAuth", failAtCallback},
 		{"SetPendingAuthLogin", failAtCallback},
 		{"HasConsent", failAtCallback},
+		{"HasConsent", failAtDecision("continue")},
 		{"GetClient", failAtCallback},
 		{"GrantConsent", failAtDecision("allow")},
 		{"CreateSessionWithCode", failAtDecision("allow")},

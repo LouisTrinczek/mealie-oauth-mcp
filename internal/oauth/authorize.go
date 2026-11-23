@@ -44,6 +44,9 @@ func newUpstreamLeg() upstreamLeg {
 }
 
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.EnablePasswordLogin && !s.requireLoginTLS(w, r) {
+		return
+	}
 	ctx := r.Context()
 	q := r.URL.Query()
 	client, err := s.resolveClient(ctx, q.Get("client_id"))
@@ -67,11 +70,14 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	leg := newUpstreamLeg()
-	upstream, err := s.upstreamAuthorizeURL(ctx, leg)
-	if err != nil {
-		s.logger.LogAttrs(ctx, slog.LevelWarn, "fetching mealie native config failed", mealieStatus(err)...)
-		s.renderError(w, r, http.StatusBadGateway, msgMealieUnreachable)
-		return
+	var upstream string
+	if s.oidcEnabled() {
+		upstream, err = s.upstreamAuthorizeURL(ctx, leg)
+		if err != nil {
+			s.logger.LogAttrs(ctx, slog.LevelWarn, "fetching mealie native config failed", mealieStatus(err)...)
+			s.renderError(w, r, http.StatusBadGateway, msgMealieUnreachable)
+			return
+		}
 	}
 	now := s.now()
 	pending := store.PendingAuth{
@@ -94,7 +100,15 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, s.bindingCookie(leg.pendingID+"."+leg.binding, int(pendingAuthLifetime.Seconds())))
 	s.audit.Event(ctx, audit.LoginStarted, slog.String("client_id", client.ID))
+	if s.cfg.EnablePasswordLogin {
+		s.showPasswordForm(w, r, leg, upstream)
+		return
+	}
 	http.Redirect(w, r, upstream, http.StatusFound)
+}
+
+func (s *Server) oidcEnabled() bool {
+	return s.cfg.EnableOIDC || !s.cfg.EnablePasswordLogin
 }
 
 func (s *Server) resolveClient(ctx context.Context, clientID string) (store.Client, error) {
@@ -163,7 +177,8 @@ func (s *Server) upstreamAuthorizeURL(ctx context.Context, leg upstreamLeg) (str
 
 func (s *Server) bindingCookie(value string, maxAge int) *http.Cookie {
 	name := bindingCookieName
-	if s.cfg.SecureCookies {
+	secure := s.cfg.SecureCookies || s.cfg.EnablePasswordLogin
+	if secure {
 		name = hostCookiePrefix + bindingCookieName
 	}
 	return &http.Cookie{
@@ -172,7 +187,7 @@ func (s *Server) bindingCookie(value string, maxAge int) *http.Cookie {
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   s.cfg.SecureCookies,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	}
 }

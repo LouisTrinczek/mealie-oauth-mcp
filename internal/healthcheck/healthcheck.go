@@ -8,8 +8,8 @@ import (
 	"net/url"
 )
 
-func Check(ctx context.Context, client *http.Client, listenAddr string) error {
-	target, err := healthzURL(listenAddr)
+func Check(ctx context.Context, client *http.Client, listenAddr string, useTLS bool) error {
+	target, err := healthzURL(listenAddr, useTLS)
 	if err != nil {
 		return err
 	}
@@ -28,7 +28,7 @@ func Check(ctx context.Context, client *http.Client, listenAddr string) error {
 	return nil
 }
 
-func healthzURL(listenAddr string) (string, error) {
+func healthzURL(listenAddr string, useTLS bool) (string, error) {
 	host, port, err := net.SplitHostPort(listenAddr)
 	if err != nil {
 		return "", fmt.Errorf("parsing listen address %q: %w", listenAddr, err)
@@ -36,7 +36,11 @@ func healthzURL(listenAddr string) (string, error) {
 	if isUnspecified(host) {
 		host = "127.0.0.1"
 	}
-	return (&url.URL{Scheme: "http", Host: net.JoinHostPort(host, port), Path: "/healthz"}).String(), nil
+	scheme := "http"
+	if useTLS {
+		scheme = "https"
+	}
+	return (&url.URL{Scheme: scheme, Host: net.JoinHostPort(host, port), Path: "/healthz"}).String(), nil
 }
 
 func isUnspecified(host string) bool {

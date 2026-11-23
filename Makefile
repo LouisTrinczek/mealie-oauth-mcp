@@ -4,7 +4,7 @@ INTEGRATION_COMPOSE = docker compose -f test/integration/compose.yml
 DEV_COMPOSE = docker compose -f dev/compose.yml
 DEV_KEYS = dev/encryption_keys.txt
 
-.PHONY: setup build test cover lint vuln fuzz test-integration dev-up dev-down dev-check release-dry-run
+.PHONY: setup build test cover lint vuln fuzz test-integration test-proxies dev-up dev-down dev-check release-dry-run
 
 setup:
 	git config core.hooksPath .githooks
@@ -34,6 +34,9 @@ fuzz:
 
 test-integration:
 	$(INTEGRATION_COMPOSE) run --rm --build it; status=$$?; $(INTEGRATION_COMPOSE) down -v; exit $$status
+
+test-proxies:
+	sh test/integration/proxies/run.sh
 
 dev-up: $(DEV_KEYS)
 	$(DEV_COMPOSE) up -d --build --wait || { $(DEV_COMPOSE) down; exit 1; }

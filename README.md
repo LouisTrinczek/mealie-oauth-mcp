@@ -10,10 +10,8 @@ A remote [MCP](https://modelcontextprotocol.io) server for
 [Mealie](https://mealie.io) that lets AI agents (Claude.ai, Claude Code, and
 other MCP clients) work with your recipes, meal plans, and shopping lists.
 
-Unlike servers that hold one static Mealie API token behind an open URL, this
-server requires an OIDC login through the identity provider Mealie already
-uses. Each connected agent acts as the Mealie user who logged in, with that
-user's permissions.
+Users sign in with their own Mealie account when connecting an MCP client.
+Each connected agent acts with that user's permissions.
 
 > **Status:** Login, `whoami` and the Mealie tools are working.
 
@@ -22,20 +20,19 @@ user's permissions.
 - OAuth 2.1 authorization server following the MCP authorization spec
   (2025-11-25), with Dynamic Client Registration and Client ID Metadata
   Documents
-- Login delegated to Mealie's native OIDC flow; works with any OIDC provider
-  Mealie supports
+- Login through Mealie's native OIDC flow or opt-in Mealie password sign-in
 - Per-user sessions; agents never see a Mealie token
 - Admin endpoints are unreachable by design
 - One static binary in a multi-arch Docker image
 
 ## Requirements
 
-- Mealie **v3.25.0 or later** with OIDC enabled. Earlier versions do not
+- Mealie **v3.25.0 or later** with OIDC or password sign-in enabled. Earlier versions do not
   return `expires_in` from the native token endpoints and expose token refresh
   as GET; the server refuses to start against them.
-- The server's callback URL (`<PUBLIC_URL>/callback`) registered as an allowed
+- For OIDC, the server's callback URL (`<PUBLIC_URL>/callback`) registered as an allowed
   redirect URI on Mealie's OIDC client in your identity provider
-- A reverse proxy that terminates TLS
+- HTTPS for the public MCP origin
 
 ## Deployment
 
@@ -43,13 +40,13 @@ An example Compose file is in
 [`deploy/docker-compose.example.yml`](deploy/docker-compose.example.yml) and
 an environment template in [`.env.example`](.env.example). The container runs
 as a non-root user, needs only a writable `/data` volume, and publishes no
-port: put a reverse proxy that terminates TLS in front of it and forward to
-port 8080.
+port. Forward from a reverse proxy to port 8080. With password sign-in, use
+HTTPS on the upstream connection as described below.
 
 Set `TRUSTED_PROXIES` to the address range your reverse proxy connects from,
 for example the Docker network's subnet (`docker network inspect <network>`
 shows it). The OAuth endpoints (`/register`, `/authorize`, `/callback`,
-`/token`, `/revoke`) allow 30 requests per minute per client address. Without
+`/token`, `/revoke`, and `/login/password` when enabled) allow 30 requests per minute per client address. Without
 `TRUSTED_PROXIES` the server sees every request as coming from the proxy, so
 all users share one budget, and one request every two seconds from anyone is
 enough to block every login and token refresh. With it, the server takes the
@@ -64,15 +61,68 @@ The server answers these routes:
 | `/mcp` | MCP endpoint (needs a bearer token) |
 | `/authorize`, `/callback`, `/consent`, `/token`, `/register`, `/revoke` | OAuth 2.1 endpoints |
 | `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` | OAuth metadata |
+| `/login/password` | Password sign-in submission, available when enabled |
 | `/healthz` | Liveness |
 | `/readyz` | Readiness: database and Mealie reachable |
 
 At startup the server checks that Mealie is reachable (retrying for up to 30
-seconds), has OIDC enabled, is at least v3.25.0, and serves its native OIDC
-config. It exits with an error otherwise.
+seconds), is at least v3.25.0, and offers an enabled sign-in method. When
+Mealie enables OIDC, the server also checks its native OIDC config.
 
 On stop, in-flight requests get 5 seconds to finish, then open streams are
 closed. This fits Docker's default 10 second stop grace period.
+
+### Password sign-in
+
+Set `ENABLE_PASSWORD_LOGIN=true` and allow password login in Mealie. If Mealie
+also enables OIDC, users can choose either method. Set `PUBLIC_URL` and
+`MEALIE_URL` to HTTPS URLs and mount the PEM files referenced by
+`TLS_CERT_FILE` and `TLS_KEY_FILE` into the MCP container. The server verifies
+Mealie's certificate using the container's trust roots. On Linux, mount a
+PEM trust bundle and set `SSL_CERT_FILE` if Mealie or the MCP listener uses
+a private CA. Include any public roots the container still needs.
+
+With a reverse proxy, enforce HTTPS and set HSTS at the public edge. Each proxy
+that terminates TLS can read the password in memory. Disable request-body
+capture in access logs, tracing, and middleware. Configure HTTPS from the proxy
+to the MCP listener and verify both the certificate chain and the DNS name.
+Forwarded headers have no effect on the password route's TLS check.
+
+- **Traefik** can define the upstream in its file provider. Attach this
+  service to the HTTPS router. The CA file is needed for a private CA.
+
+  ```yaml
+  http:
+    serversTransports:
+      mealie-mcp-tls:
+        serverName: mcp.example.com
+        rootCAs:
+          - /etc/traefik/mcp-ca.pem
+    services:
+      mealie-mcp:
+        loadBalancer:
+          serversTransport: mealie-mcp-tls
+          servers:
+            - url: https://mealie-oauth-mcp:8080
+  ```
+- **NGINX** uses an HTTPS `proxy_pass` and the following upstream settings.
+  The CA bundle must contain the issuing trust root.
+
+  ```nginx
+  proxy_http_version 1.1;
+  proxy_buffering off;
+  proxy_ssl_server_name on;
+  proxy_ssl_name mcp.example.com;
+  proxy_ssl_verify on;
+  proxy_ssl_trusted_certificate /etc/nginx/mcp-ca-bundle.pem;
+  ```
+
+Check that `/healthz` works through the edge over HTTPS. In a test deployment,
+change the proxy's upstream trust bundle to an unrelated CA and verify the proxy
+rejects the connection. Restore the CA, repeat with a hostname absent from the
+certificate, then restore the correct hostname. The container health check
+also verifies the listener certificate. Set `HEALTHCHECK_TLS_SERVER_NAME` if
+the certificate uses a DNS name other than the hostname of `PUBLIC_URL`.
 
 ### Reverse proxy on the same host
 
@@ -112,10 +162,13 @@ except for `METRICS_ADDR`, where empty disables metrics.
 | `TRUSTED_PROXIES` | behind a reverse proxy | | Comma-separated CIDRs of reverse proxies whose `X-Forwarded-For` client address is trusted for rate limiting (see [Deployment](#deployment)) |
 | `METRICS_ADDR` | no | `127.0.0.1:9090` | Listen address for `/metrics` as `host:port`; set it empty to disable metrics (see [Monitoring](#monitoring)) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | no | | Absolute `http` or `https` URL of an OTLP/HTTP collector; tracing is on when set. The standard `OTEL_EXPORTER_OTLP_*` variables, such as `OTEL_EXPORTER_OTLP_HEADERS`, apply |
+| `ENABLE_PASSWORD_LOGIN` | no | `false` | Offers password sign-in when Mealie allows it |
+| `TLS_CERT_FILE`, `TLS_KEY_FILE` | for password sign-in | | PEM certificate chain and private key for the MCP listener |
+| `HEALTHCHECK_TLS_SERVER_NAME` | no | hostname of `PUBLIC_URL` | Certificate name verified by the TLS health check |
 | `INSECURE_ALLOW_HTTP` | no | `false` | Allows an `http://` `PUBLIC_URL`. Development and tests only |
 
-`ENCRYPTION_KEYS_FILE` is the only variable with a `_FILE` form. Prefer it
-with a Docker secret over putting keys in the environment.
+Use `ENCRYPTION_KEYS_FILE` with a Docker secret to keep encryption keys out
+of the environment.
 
 Generate a key and prefix it with an ID:
 
@@ -123,7 +176,7 @@ Generate a key and prefix it with an ID:
 echo "k1:$(openssl rand -base64 32)"
 ```
 
-## Identity-provider setup
+## OIDC identity-provider setup
 
 Mealie performs the login, so the provider needs no knowledge of this server
 except one thing: add `<PUBLIC_URL>/callback` as an allowed redirect URI on

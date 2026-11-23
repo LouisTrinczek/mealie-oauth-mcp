@@ -1,9 +1,14 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"log/slog"
+	"math/big"
 	"net/netip"
 	"strings"
 	"testing"
@@ -435,5 +440,113 @@ func TestDataDir(t *testing.T) {
 				t.Errorf("DataDir = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoad_PasswordLoginTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		overrides map[string]string
+		files     map[string][]byte
+		want      string
+	}{
+		{name: "invalid opt-in", overrides: map[string]string{"ENABLE_PASSWORD_LOGIN": "yes"}, want: "ENABLE_PASSWORD_LOGIN must be a boolean"},
+		{name: "missing TLS pair", overrides: map[string]string{"ENABLE_PASSWORD_LOGIN": "true"}, want: "TLS_CERT_FILE and TLS_KEY_FILE"},
+		{name: "partial TLS pair", overrides: map[string]string{"TLS_CERT_FILE": "cert.pem"}, want: "TLS_CERT_FILE and TLS_KEY_FILE"},
+		{name: "missing TLS certificate", overrides: map[string]string{"TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem"}, want: "TLS_CERT_FILE could not be read"},
+		{name: "missing TLS key", overrides: map[string]string{"TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem"}, files: map[string][]byte{"cert.pem": []byte("invalid")}, want: "TLS_KEY_FILE could not be read"},
+		{name: "invalid TLS pair", overrides: map[string]string{"TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem"}, files: map[string][]byte{"cert.pem": []byte("invalid"), "key.pem": []byte("invalid")}, want: "loading TLS certificate and key"},
+		{name: "plaintext public URL", overrides: map[string]string{"ENABLE_PASSWORD_LOGIN": "true", "INSECURE_ALLOW_HTTP": "true", "PUBLIC_URL": "http://mcp.example"}, want: "PUBLIC_URL must use https"},
+		{name: "plaintext Mealie URL", overrides: map[string]string{"ENABLE_PASSWORD_LOGIN": "true", "INSECURE_ALLOW_HTTP": "true", "MEALIE_URL": "http://mealie.example"}, want: "MEALIE_URL must use https"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadFrom(withEnv(tt.overrides), tt.files)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Load() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestHealthcheckTLSName(t *testing.T) {
+	tests := []struct {
+		name      string
+		env       map[string]string
+		want      string
+		wantError bool
+	}{
+		{name: "plaintext listener", env: map[string]string{"PUBLIC_URL": "https://public.example"}},
+		{name: "public hostname", env: map[string]string{"TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem", "PUBLIC_URL": "https://public.example:8443"}, want: "public.example"},
+		{name: "name override", env: map[string]string{"TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem", "HEALTHCHECK_TLS_SERVER_NAME": "listener.example"}, want: "listener.example"},
+		{name: "public URL missing", env: map[string]string{"TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem"}, wantError: true},
+		{name: "public hostname missing", env: map[string]string{"TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem", "PUBLIC_URL": "https://:8443"}, wantError: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := HealthcheckTLSName(func(name string) (string, bool) {
+				value, ok := tt.env[name]
+				return value, ok
+			})
+			if got != tt.want || (err != nil) != tt.wantError {
+				t.Fatalf("HealthcheckTLSName() = %q, %v, want %q and error = %v", got, err, tt.want, tt.wantError)
+			}
+		})
+	}
+}
+
+func TestLoad_PasswordLoginCertificateValidity(t *testing.T) {
+	tests := []struct {
+		name      string
+		notBefore time.Duration
+		notAfter  time.Duration
+		optIn     string
+		wantError bool
+	}{
+		{"valid", -time.Hour, time.Hour, "true", false},
+		{"expired", -2 * time.Hour, -time.Hour, "true", true},
+		{"not yet valid", time.Hour, 2 * time.Hour, "true", true},
+		{"expired with password disabled", -2 * time.Hour, -time.Hour, "false", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
+			files := listenerTLSFiles(t, now.Add(tt.notBefore), now.Add(tt.notAfter))
+			cfg, err := loadFrom(withEnv(map[string]string{
+				"ENABLE_PASSWORD_LOGIN": tt.optIn,
+				"TLS_CERT_FILE":         "cert.pem",
+				"TLS_KEY_FILE":          "key.pem",
+			}), files)
+			if tt.wantError {
+				if err == nil || !strings.Contains(err.Error(), "TLS_CERT_FILE certificate is outside its validity period") {
+					t.Fatalf("Load() error = %v, want certificate validity error", err)
+				}
+				return
+			}
+			if err != nil || cfg.TLSCertificate == nil || cfg.EnablePasswordLogin != (tt.optIn == "true") {
+				t.Fatalf("Load() did not accept the expected native TLS configuration: %v", err)
+			}
+		})
+	}
+}
+
+func listenerTLSFiles(t *testing.T, notBefore, notAfter time.Time) map[string][]byte {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: notBefore, NotAfter: notAfter}
+	cert, err := x509.CreateCertificate(rand.Reader, template, template, public, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := x509.MarshalPKCS8PrivateKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string][]byte{
+		"cert.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert}),
+		"key.pem":  pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}),
 	}
 }

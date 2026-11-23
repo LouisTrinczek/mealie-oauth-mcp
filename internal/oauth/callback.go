@@ -18,32 +18,60 @@ var errMealieRefused = errors.New("mealie refused the login")
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
-	pending, err := s.store.TakePendingAuthByUpstreamState(ctx, token.Hash(q.Get("state")), s.now())
+	if q.Get("state") == "" || (q.Get("code") == "" && q.Get("error") == "") {
+		s.renderError(w, r, http.StatusBadRequest, msgExpired)
+		return
+	}
+	pending, err := s.store.GetPendingAuthByUpstreamState(ctx, token.Hash(q.Get("state")))
 	if errors.Is(err, store.ErrNotFound) {
 		s.renderError(w, r, http.StatusBadRequest, msgExpired)
 		return
 	}
 	if err != nil {
-		s.internalError(w, r, "taking pending auth", err)
+		s.internalError(w, r, "getting pending auth", err)
 		return
 	}
 	pendingID, binding, ok := s.readBinding(r)
 	if !ok || pendingID != pending.ID || !bindingMatches(binding, pending) {
-		s.abandon(ctx, pending, slog.String("reason", "browser_binding_mismatch"))
+		s.audit.Event(ctx, audit.LoginFailed, slog.String("client_id", pending.ClientID), slog.String("reason", "browser_binding_mismatch"))
 		s.renderError(w, r, http.StatusBadRequest, msgWrongBrowser)
 		return
 	}
-	if q.Has("error") {
+	if !s.claimPending(w, r, pending.ID) {
+		return
+	}
+	if q.Get("error") != "" {
 		s.abandon(ctx, pending, slog.String("reason", "upstream_error"))
 		s.redirectError(w, r, pending.RedirectURI, pending.ClientState, upstreamErrorCode(q.Get("error")), "The identity provider did not complete the login.")
 		return
 	}
-	tok, user, err := s.exchangeWithMealie(ctx, pending, secret.FromString(q.Get("code")))
+	tok, err := s.mealie.NativeToken(ctx, mealie.NativeTokenRequest{
+		Code:         secret.FromString(q.Get("code")),
+		CodeVerifier: pending.UpstreamVerifier,
+		RedirectURI:  s.cfg.CallbackURL,
+		Nonce:        pending.UpstreamNonce,
+	})
+	user, err := s.resolveMealieLogin(ctx, tok, err)
 	if err != nil {
-		s.failMealieLogin(w, r, pending, err)
+		s.failMealieLogin(w, r, pending, err, msgMealieRefused, msgMealieFailed)
 		return
 	}
-	pending, err = s.saveLogin(ctx, pending, tok, user)
+	s.completeLogin(w, r, pending, binding, tok, user)
+}
+
+func (s *Server) claimPending(w http.ResponseWriter, r *http.Request, id string) bool {
+	err := s.store.ClaimPendingAuth(r.Context(), id, s.now())
+	if errors.Is(err, store.ErrNotFound) {
+		s.renderError(w, r, http.StatusBadRequest, msgExpired)
+	} else if err != nil {
+		s.internalError(w, r, "claiming pending auth", err)
+	}
+	return err == nil
+}
+
+func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, pending store.PendingAuth, binding string, tok mealie.Token, user mealie.User) {
+	ctx := r.Context()
+	pending, err := s.saveLogin(ctx, pending, tok, user)
 	if err != nil {
 		s.internalError(w, r, "saving login", err)
 		return
@@ -53,11 +81,11 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, "checking consent", err)
 		return
 	}
-	if consented {
+	if consented && r.Method == http.MethodGet {
 		s.finish(w, r, pending)
 		return
 	}
-	s.showConsent(w, r, pending, binding)
+	s.showConsent(w, r, pending, binding, consented)
 }
 
 func (s *Server) saveLogin(ctx context.Context, pending store.PendingAuth, tok mealie.Token, user mealie.User) (store.PendingAuth, error) {
@@ -80,34 +108,28 @@ func (s *Server) saveLogin(ctx context.Context, pending store.PendingAuth, tok m
 	return pending, nil
 }
 
-func (s *Server) exchangeWithMealie(ctx context.Context, pending store.PendingAuth, code secret.Secret) (mealie.Token, mealie.User, error) {
-	tok, err := s.mealie.NativeToken(ctx, mealie.NativeTokenRequest{
-		Code:         code,
-		CodeVerifier: pending.UpstreamVerifier,
-		RedirectURI:  s.cfg.CallbackURL,
-		Nonce:        pending.UpstreamNonce,
-	})
+func (s *Server) resolveMealieLogin(ctx context.Context, tok mealie.Token, err error) (mealie.User, error) {
 	if err != nil {
-		return mealie.Token{}, mealie.User{}, err
+		return mealie.User{}, err
 	}
 	if len(tok.AccessToken.Bytes()) == 0 || tok.ExpiresIn <= 0 {
-		return mealie.Token{}, mealie.User{}, errMealieRefused
+		return mealie.User{}, errMealieRefused
 	}
 	user, err := s.mealie.Self(ctx, tok.AccessToken)
 	if err != nil {
-		return mealie.Token{}, mealie.User{}, err
+		return mealie.User{}, err
 	}
 	if user.ID == "" {
-		return mealie.Token{}, mealie.User{}, errMealieRefused
+		return mealie.User{}, errMealieRefused
 	}
-	return tok, user, nil
+	return user, nil
 }
 
-func (s *Server) failMealieLogin(w http.ResponseWriter, r *http.Request, pending store.PendingAuth, err error) {
+func (s *Server) failMealieLogin(w http.ResponseWriter, r *http.Request, pending store.PendingAuth, err error, refusedMessage, failedMessage string) {
 	refused := errors.Is(err, errMealieRefused) || mealie.IsUnauthorized(err)
-	reason, status, message := "mealie_unavailable", http.StatusBadGateway, msgMealieFailed
+	reason, status, message := "mealie_unavailable", http.StatusBadGateway, failedMessage
 	if refused {
-		reason, status, message = "mealie_refused", http.StatusForbidden, msgMealieRefused
+		reason, status, message = "mealie_refused", http.StatusForbidden, refusedMessage
 	}
 	s.abandon(r.Context(), pending, append([]slog.Attr{slog.String("reason", reason)}, mealieStatus(err)...)...)
 	s.renderError(w, r, status, message)

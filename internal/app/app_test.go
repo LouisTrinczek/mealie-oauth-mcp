@@ -4,10 +4,17 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +36,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/config"
+	"github.com/louistrinczek/mealie-oauth-mcp/internal/healthcheck"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mcpserver"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/mealie"
 	"github.com/louistrinczek/mealie-oauth-mcp/internal/metrics"
@@ -232,9 +240,52 @@ func requireStartupError(t *testing.T, about string, nativeConfigStatus int, wan
 	}
 }
 
-func TestApp_StartupFailsWhenOIDCDisabled(t *testing.T) {
+func TestApp_StartupFailsWithoutSignInMethod(t *testing.T) {
 	requireStartupError(t, `{"version":"v3.29.0","enableOidc":false}`, http.StatusOK,
-		"Mealie has OIDC disabled; this server requires OIDC (see README)")
+		"no Mealie sign-in method available")
+}
+
+func TestStartupCheck_SignInMethods(t *testing.T) {
+	tests := []struct {
+		name      string
+		about     string
+		optIn     bool
+		want      startupInfo
+		wantCalls int
+	}{
+		{"OIDC only", `{"version":"v3.25.0","enableOidc":true,"allowPasswordLogin":true}`, false, startupInfo{version: "v3.25.0", oidc: true}, 2},
+		{"both methods", `{"version":"v3.25.0","enableOidc":true,"allowPasswordLogin":true}`, true, startupInfo{version: "v3.25.0", oidc: true, password: true}, 2},
+		{"password only", `{"version":"v3.25.0","enableOidc":false,"allowPasswordLogin":true}`, true, startupInfo{version: "v3.25.0", password: true}, 1},
+		{"password disabled upstream", `{"version":"v3.25.0","enableOidc":false,"allowPasswordLogin":false}`, true, startupInfo{}, 1},
+		{"password operator opt-in missing", `{"version":"v3.25.0","enableOidc":false,"allowPasswordLogin":true}`, false, startupInfo{}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := http.StatusOK
+			if tt.wantCalls == 1 {
+				status = http.StatusNotFound
+			}
+			fake := startFakeMealie(t, tt.about, status)
+			cfg := testConfig(t, fake.URL)
+			check := startupCheck{
+				mealie:        mealie.New(cfg.MealieURL, mealie.Options{}),
+				logger:        slog.New(slog.DiscardHandler),
+				reachTimeout:  time.Second,
+				passwordOptIn: tt.optIn,
+			}
+			got, err := check.run(t.Context())
+			if tt.want == (startupInfo{}) {
+				if err == nil || !strings.Contains(err.Error(), "no Mealie sign-in method available") {
+					t.Fatalf("startup check error = %v, want no sign-in method", err)
+				}
+			} else if err != nil || got != tt.want {
+				t.Fatalf("startup check = %+v, %v, want %+v", got, err, tt.want)
+			}
+			if calls := len(fake.seenUserAgents()); calls != tt.wantCalls {
+				t.Errorf("Mealie calls = %d, want %d", calls, tt.wantCalls)
+			}
+		})
+	}
 }
 
 func TestApp_StartupFailsOnOldVersion(t *testing.T) {
@@ -779,6 +830,98 @@ func TestRun_MetricsDisabled(t *testing.T) {
 		_ = held.Close()
 	}
 	running.requireCleanStop(t, 5*time.Second)
+}
+
+func TestRun_NativeTLSHealthcheck(t *testing.T) {
+	const name = "listener.test"
+	cert, key := makeListenerKeyPair(t, name)
+	fake := startFakeMealie(t, currentAbout, http.StatusOK)
+	env := map[string]string{
+		"MEALIE_URL":                  fake.URL,
+		"PUBLIC_URL":                  testPublicURL,
+		"ENCRYPTION_KEYS":             "k1:" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)),
+		"DATA_DIR":                    t.TempDir(),
+		"LISTEN_ADDR":                 "127.0.0.1:0",
+		"METRICS_ADDR":                "",
+		"TLS_CERT_FILE":               "certificate",
+		"TLS_KEY_FILE":                "key",
+		"HEALTHCHECK_TLS_SERVER_NAME": name,
+	}
+	getenv := func(setting string) (string, bool) {
+		value, ok := env[setting]
+		return value, ok
+	}
+	cfg, err := config.Load(getenv, func(path string) ([]byte, error) {
+		if path == "certificate" {
+			return cert, nil
+		}
+		return key, nil
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	serverName, err := config.HealthcheckTLSName(getenv)
+	if err != nil {
+		t.Fatalf("HealthcheckTLSName: %v", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(cert) {
+		t.Fatal("appending listener certificate failed")
+	}
+	logs := &syncBuffer{}
+	a := newTestApp(t, cfg, logs)
+	running := runApp(t, a, logs)
+	defer running.requireCleanStop(t, 5*time.Second)
+	address := strings.TrimPrefix(running.baseURL, "http://")
+	for _, tt := range []struct {
+		name       string
+		roots      *x509.CertPool
+		serverName string
+		wantError  bool
+	}{
+		{"verified DNS name at bind address", roots, serverName, false},
+		{"wrong hostname", roots, "wrong.test", true},
+		{"untrusted certificate", x509.NewCertPool(), serverName, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: tt.serverName, RootCAs: tt.roots}}
+			defer transport.CloseIdleConnections()
+			client := &http.Client{Transport: transport, Timeout: time.Second}
+			err := healthcheck.Check(t.Context(), client, address, true)
+			if tt.wantError {
+				var certErr *tls.CertificateVerificationError
+				if !errors.As(err, &certErr) {
+					t.Fatalf("Check error = %v, want certificate verification failure", err)
+				}
+			} else if err != nil {
+				t.Fatalf("Check error = %v", err)
+			}
+		})
+	}
+}
+
+func makeListenerKeyPair(t *testing.T, name string) ([]byte, []byte) {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		DNSNames:     []string{name},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	cert, err := x509.CreateCertificate(rand.Reader, template, template, public, private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := x509.MarshalPKCS8PrivateKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})
 }
 
 func TestRun_MetricsAddrInUse(t *testing.T) {

@@ -24,6 +24,7 @@ const (
 type consentView struct {
 	ClientName   string
 	Verified     bool
+	Consented    bool
 	RedirectHost string
 	Username     string
 	PendingID    string
@@ -31,7 +32,7 @@ type consentView struct {
 	Action       string
 }
 
-func (s *Server) showConsent(w http.ResponseWriter, r *http.Request, pending store.PendingAuth, binding string) {
+func (s *Server) showConsent(w http.ResponseWriter, r *http.Request, pending store.PendingAuth, binding string, consented bool) {
 	client, err := s.store.GetClient(r.Context(), pending.ClientID)
 	if err != nil {
 		s.internalError(w, r, "getting client for consent", err)
@@ -40,6 +41,7 @@ func (s *Server) showConsent(w http.ResponseWriter, r *http.Request, pending sto
 	s.renderHTML(w, r, s.consent, http.StatusOK, consentPolicy(pending.RedirectURI), consentView{
 		ClientName:   clientDisplayName(client),
 		Verified:     client.Source == sourceCIMD,
+		Consented:    consented,
 		RedirectHost: displayHost(pending.RedirectURI),
 		Username:     pending.MealieUsername,
 		PendingID:    pending.ID,
@@ -73,11 +75,27 @@ func (s *Server) decideConsent(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusBadRequest, msgInvalidConsent)
 		return
 	}
-	switch r.PostFormValue("decision") {
+	decision := r.PostFormValue("decision")
+	switch decision {
 	case "allow":
 		s.allow(w, r, pending)
 	case "deny":
-		s.deny(w, r, pending)
+		s.deny(w, r, pending, false)
+	case "continue", "cancel":
+		consented, err := s.store.HasConsent(ctx, pending.MealieUserID, pending.ClientID)
+		if err != nil {
+			s.internalError(w, r, "checking consent", err)
+			return
+		}
+		if !consented {
+			s.renderError(w, r, http.StatusBadRequest, msgInvalidConsent)
+			return
+		}
+		if decision == "continue" {
+			s.finish(w, r, pending)
+			return
+		}
+		s.deny(w, r, pending, true)
 	default:
 		s.renderError(w, r, http.StatusBadRequest, msgInvalidConsent)
 	}
@@ -92,14 +110,18 @@ func (s *Server) allow(w http.ResponseWriter, r *http.Request, pending store.Pen
 	s.finish(w, r, pending)
 }
 
-func (s *Server) deny(w http.ResponseWriter, r *http.Request, pending store.PendingAuth) {
+func (s *Server) deny(w http.ResponseWriter, r *http.Request, pending store.PendingAuth, consented bool) {
 	if err := s.store.DeletePendingAuth(r.Context(), pending.ID); err != nil {
 		s.internalError(w, r, "deleting pending auth", err)
 		return
 	}
-	s.audit.Event(r.Context(), audit.ConsentDenied, consentAttrs(pending)...)
+	description := "The user canceled login."
+	if !consented {
+		s.audit.Event(r.Context(), audit.ConsentDenied, consentAttrs(pending)...)
+		description = "The user denied access."
+	}
 	http.SetCookie(w, s.bindingCookie("", -1))
-	s.redirectError(w, r, pending.RedirectURI, pending.ClientState, "access_denied", "The user denied access.")
+	s.redirectError(w, r, pending.RedirectURI, pending.ClientState, "access_denied", description)
 }
 
 func (s *Server) finish(w http.ResponseWriter, r *http.Request, pending store.PendingAuth) {

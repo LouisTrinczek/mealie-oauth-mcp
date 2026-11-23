@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -60,6 +61,9 @@ type namedServer struct {
 }
 
 func (s namedServer) serve() error {
+	if s.http.TLSConfig != nil {
+		return fmt.Errorf("serving %s: %w", s.name, s.http.ServeTLS(s.listener, "", ""))
+	}
 	return fmt.Errorf("serving %s: %w", s.name, s.http.Serve(s.listener))
 }
 
@@ -112,14 +116,15 @@ func (a *App) wire(ctx context.Context, keyring *tokencrypt.Keyring, version str
 	warnWithoutTrustedProxies(ctx, a.cfg, a.logger)
 	a.mealie = mealie.New(a.cfg.MealieURL, mealie.Options{UserAgent: userAgentPrefix + version, Metrics: a.metrics, Tracing: a.tracing})
 	check := startupCheck{
-		mealie:       a.mealie,
-		mealieURL:    a.cfg.MealieURL.String(),
-		logger:       a.logger,
-		retries:      startupRetries,
-		retryDelay:   startupRetryDelay,
-		reachTimeout: startupReachLimit,
+		mealie:        a.mealie,
+		mealieURL:     a.cfg.MealieURL.String(),
+		logger:        a.logger,
+		retries:       startupRetries,
+		retryDelay:    startupRetryDelay,
+		reachTimeout:  startupReachLimit,
+		passwordOptIn: a.cfg.EnablePasswordLogin,
 	}
-	mealieVersion, err := check.run(ctx)
+	upstream, err := check.run(ctx)
 	if err != nil {
 		return err
 	}
@@ -135,7 +140,7 @@ func (a *App) wire(ctx context.Context, keyring *tokencrypt.Keyring, version str
 		Mealie:        a.mealie,
 		Clock:         a.now,
 		Version:       version,
-		MealieVersion: mealieVersion,
+		MealieVersion: upstream.version,
 		Logger:        a.logger,
 		Metrics:       a.metrics,
 		Tracing:       a.tracing,
@@ -143,7 +148,7 @@ func (a *App) wire(ctx context.Context, keyring *tokencrypt.Keyring, version str
 	if err != nil {
 		return errors.Join(fmt.Errorf("building MCP tools: %w", err), st.Close())
 	}
-	a.handler = a.routes(keyring, auditLog, sessions, tools)
+	a.handler = a.routes(keyring, auditLog, sessions, tools, upstream)
 	return nil
 }
 
@@ -184,8 +189,8 @@ func (a *App) sessionManager(keyring *tokencrypt.Keyring, auditLog *audit.Logger
 	})
 }
 
-func (a *App) routes(keyring *tokencrypt.Keyring, auditLog *audit.Logger, sessions *session.Manager, tools *mcp.Server) http.Handler {
-	oauthServer := oauth.New(a.oauthConfig(), oauth.Deps{
+func (a *App) routes(keyring *tokencrypt.Keyring, auditLog *audit.Logger, sessions *session.Manager, tools *mcp.Server, upstream startupInfo) http.Handler {
+	oauthServer := oauth.New(a.oauthConfig(upstream), oauth.Deps{
 		Store:   a.store,
 		Keyring: keyring,
 		Mealie:  a.mealie,
@@ -203,15 +208,17 @@ func (a *App) routes(keyring *tokencrypt.Keyring, auditLog *audit.Logger, sessio
 	return a.withMiddleware(mux)
 }
 
-func (a *App) oauthConfig() oauth.Config {
+func (a *App) oauthConfig(upstream startupInfo) oauth.Config {
 	return oauth.Config{
-		Issuer:         a.cfg.PublicURL.String(),
-		Resource:       a.cfg.ResourceURL(),
-		CallbackURL:    a.cfg.CallbackURL(),
-		AccessTokenTTL: a.cfg.AccessTokenTTL,
-		SessionMaxAge:  a.cfg.SessionMaxAge,
-		TrustedProxies: a.cfg.TrustedProxies,
-		SecureCookies:  a.publicURLIsHTTPS(),
+		Issuer:              a.cfg.PublicURL.String(),
+		Resource:            a.cfg.ResourceURL(),
+		CallbackURL:         a.cfg.CallbackURL(),
+		AccessTokenTTL:      a.cfg.AccessTokenTTL,
+		SessionMaxAge:       a.cfg.SessionMaxAge,
+		TrustedProxies:      a.cfg.TrustedProxies,
+		SecureCookies:       a.publicURLIsHTTPS(),
+		EnableOIDC:          upstream.oidc,
+		EnablePasswordLogin: upstream.password,
 	}
 }
 
@@ -320,6 +327,9 @@ func (a *App) serve(ctx context.Context, listener, metricsListener net.Listener)
 func (a *App) httpServer(requests context.Context) *http.Server {
 	srv := a.newServer(a.handler, writeTimeout)
 	srv.BaseContext = func(net.Listener) context.Context { return requests }
+	if cert := a.cfg.TLSCertificate; cert != nil {
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{*cert}}
+	}
 	return srv
 }
 
@@ -398,30 +408,44 @@ type mealieProbe interface {
 	NativeConfig(ctx context.Context) (mealie.NativeConfig, error)
 }
 
-type startupCheck struct {
-	mealie       mealieProbe
-	mealieURL    string
-	logger       *slog.Logger
-	retries      int
-	retryDelay   time.Duration
-	reachTimeout time.Duration
+type startupInfo struct {
+	version  string
+	oidc     bool
+	password bool
 }
 
-func (c startupCheck) run(ctx context.Context) (string, error) {
+type startupCheck struct {
+	passwordOptIn bool
+	mealie        mealieProbe
+	mealieURL     string
+	logger        *slog.Logger
+	retries       int
+	retryDelay    time.Duration
+	reachTimeout  time.Duration
+}
+
+func (c startupCheck) run(ctx context.Context) (startupInfo, error) {
 	about, err := c.about(ctx)
 	if err != nil {
-		return "", err
+		return startupInfo{}, err
 	}
-	if !about.EnableOIDC {
-		return "", incompatibleMealie("Mealie has OIDC disabled; this server requires OIDC (see README)")
+	info := startupInfo{
+		version:  about.Version,
+		oidc:     about.EnableOIDC,
+		password: c.passwordOptIn && about.AllowPasswordLogin,
 	}
-	if err := c.checkVersion(ctx, about.Version); err != nil {
-		return "", err
+	if !info.oidc && !info.password {
+		return startupInfo{}, incompatibleMealie("no Mealie sign-in method available; enable OIDC in Mealie or allow password login in Mealie and set ENABLE_PASSWORD_LOGIN (see README)")
 	}
-	if _, err := c.mealie.NativeConfig(ctx); err != nil {
-		return "", fmt.Errorf("reading Mealie's native OIDC config: %w", err)
+	if err := c.checkVersion(ctx, info.version); err != nil {
+		return startupInfo{}, err
 	}
-	return about.Version, nil
+	if info.oidc {
+		if _, err := c.mealie.NativeConfig(ctx); err != nil {
+			return startupInfo{}, fmt.Errorf("reading Mealie's native OIDC config: %w", err)
+		}
+	}
+	return info, nil
 }
 
 func (c startupCheck) about(ctx context.Context) (mealie.About, error) {

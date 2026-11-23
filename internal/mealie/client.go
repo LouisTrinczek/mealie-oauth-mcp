@@ -50,12 +50,13 @@ type Options struct {
 }
 
 type Client struct {
-	baseURL   *url.URL
-	http      *http.Client
-	userAgent string
-	backoff   []time.Duration
-	metrics   *metrics.Registry
-	tracer    trace.Tracer
+	baseURL      *url.URL
+	http         *http.Client
+	passwordHTTP *http.Client
+	userAgent    string
+	backoff      []time.Duration
+	metrics      *metrics.Registry
+	tracer       trace.Tracer
 }
 
 func New(baseURL *url.URL, opts Options) *Client {
@@ -76,12 +77,13 @@ func New(baseURL *url.URL, opts Options) *Client {
 		tracerProvider = noop.NewTracerProvider()
 	}
 	return &Client{
-		baseURL:   baseURL,
-		http:      httpClient,
-		userAgent: userAgent,
-		backoff:   defaultBackoff,
-		metrics:   registry,
-		tracer:    tracing.Tracer(tracerProvider),
+		baseURL:      baseURL,
+		http:         httpClient,
+		passwordHTTP: newPasswordHTTPClient(httpClient),
+		userAgent:    userAgent,
+		backoff:      defaultBackoff,
+		metrics:      registry,
+		tracer:       tracing.Tracer(tracerProvider),
 	}
 }
 

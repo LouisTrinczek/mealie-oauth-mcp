@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -57,8 +58,21 @@ func backup(ctx context.Context, file string) error {
 }
 
 func checkHealth(ctx context.Context) error {
-	client := &http.Client{Timeout: healthcheckTimeout}
-	if err := healthcheck.Check(ctx, client, config.ListenAddr(os.LookupEnv)); err != nil {
+	name, err := config.HealthcheckTLSName(os.LookupEnv)
+	if err != nil {
+		return logFailure(startupLogger(), "health check failed", err)
+	}
+	transport := &http.Transport{}
+	if name != "" {
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, ServerName: name}
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Transport:     transport,
+		Timeout:       healthcheckTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	if err := healthcheck.Check(ctx, client, config.ListenAddr(os.LookupEnv), name != ""); err != nil {
 		return logFailure(startupLogger(), "health check failed", err)
 	}
 	return nil
